@@ -405,6 +405,137 @@ public class AllDirectedPathsTest
         }
     }
 
+    @Test
+    public void testMultipleSourcesPartialGarden()
+    {
+        // Two sources {S1, S2}; S1 reaches T via S1→A→T, S2 is isolated. A separate
+        // source-disconnected garden vertex U → T should be pruned for both sources.
+        DefaultDirectedGraph<String, DefaultEdge> graph =
+            new DefaultDirectedGraph<>(DefaultEdge.class);
+        for (String v : new String[] { "S1", "S2", "A", "T", "U" }) {
+            graph.addVertex(v);
+        }
+        graph.addEdge("S1", "A");
+        graph.addEdge("A", "T");
+        graph.addEdge("U", "T");
+
+        AllDirectedPaths<String, DefaultEdge> alg = new AllDirectedPaths<>(graph);
+        List<GraphPath<String, DefaultEdge>> paths =
+            alg.getAllPaths(Set.of("S1", "S2"), Set.of("T"), true, 5);
+        assertEquals(1, paths.size());
+        assertEquals(Arrays.asList("S1", "A", "T"), paths.get(0).getVertexList());
+    }
+
+    @Test
+    public void testUnboundedSimplePathsWithUnreachableGarden()
+    {
+        // simplePathsOnly=true with maxPathLength=null. The sandwich prune must remain
+        // exact in the unbounded case: any edge from a source-unreachable vertex into T
+        // is pruned, but the legitimate S→A→T path is preserved.
+        DefaultDirectedGraph<String, DefaultEdge> graph =
+            new DefaultDirectedGraph<>(DefaultEdge.class);
+        for (String v : new String[] { "S", "A", "T", "U", "V" }) {
+            graph.addVertex(v);
+        }
+        graph.addEdge("S", "A");
+        graph.addEdge("A", "T");
+        graph.addEdge("U", "T");
+        graph.addEdge("V", "U");
+
+        List<GraphPath<String, DefaultEdge>> paths =
+            new AllDirectedPaths<>(graph).getAllPaths(Set.of("S"), Set.of("T"), true, null);
+        assertEquals(1, paths.size());
+        assertEquals(Arrays.asList("S", "A", "T"), paths.get(0).getVertexList());
+    }
+
+    @Test
+    public void testSourceEqualsTargetInDisconnectedGraph()
+    {
+        // S is both source and target. A second disconnected vertex U has an edge into S
+        // (so S is backward-reachable from U) but U is not forward-reachable from S. The
+        // trivial zero-length walk at S must still be produced.
+        DefaultDirectedGraph<String, DefaultEdge> graph =
+            new DefaultDirectedGraph<>(DefaultEdge.class);
+        graph.addVertex("S");
+        graph.addVertex("U");
+        graph.addEdge("U", "S");
+
+        List<GraphPath<String, DefaultEdge>> paths =
+            new AllDirectedPaths<>(graph).getAllPaths(Set.of("S"), Set.of("S"), true, 5);
+        assertEquals(1, paths.size());
+        assertEquals(0, paths.get(0).getLength());
+    }
+
+    @Test
+    public void testDenseStronglyConnectedLossCase()
+    {
+        // Loss case shape: small dense strongly-connected digraph where every vertex is
+        // both forward-reachable from source and backward-reachable from target. The
+        // sandwich prune cannot drop anything here. Tests that the prune does not
+        // *change* the result on this shape — bounded overhead is OK; wrong answers are not.
+        int n = 6;
+        DefaultDirectedGraph<Integer, DefaultEdge> graph =
+            new DefaultDirectedGraph<>(DefaultEdge.class);
+        for (int v = 0; v < n; v++) {
+            graph.addVertex(v);
+        }
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                if (i != j) {
+                    graph.addEdge(i, j);
+                }
+            }
+        }
+        int maxLength = 3;
+        List<List<Integer>> expected = bruteForceSimplePaths(graph, 0, n - 1, maxLength);
+        List<GraphPath<Integer, DefaultEdge>> actual =
+            new AllDirectedPaths<>(graph).getAllPaths(0, n - 1, true, maxLength);
+        List<List<Integer>> actualVertexLists = new ArrayList<>(actual.size());
+        for (GraphPath<Integer, DefaultEdge> path : actual) {
+            actualVertexLists.add(path.getVertexList());
+        }
+
+        assertEquals(expected.size(), actualVertexLists.size());
+        assertEquals(new HashSet<>(expected), new HashSet<>(actualVertexLists));
+    }
+
+    @Test
+    public void testFuzzAgainstBruteForce()
+    {
+        // For 8 seeded random small directed graphs, compare the path multiset returned
+        // by AllDirectedPaths against a brute-force enumeration. Mixes:
+        //   - simple vs non-simple mode
+        //   - reachable source-disconnected garden vertices and partial reachability
+        //   - small bounded maxLength so the brute force terminates fast
+        long[] seeds = { 1L, 2L, 3L, 5L, 7L, 11L, 13L, 17L };
+        for (long seed : seeds) {
+            Random rng = new Random(seed);
+            DefaultDirectedGraph<Integer, DefaultEdge> graph =
+                buildRandomDigraphWithIsolatedPocket(rng, 4, 4, 0.4);
+            Integer source = 0;
+            Integer target = 3;
+            int maxLength = 4;
+
+            // Simple mode
+            List<List<Integer>> expectedSimple =
+                bruteForceSimplePaths(graph, source, target, maxLength);
+            List<GraphPath<Integer, DefaultEdge>> actualSimple =
+                new AllDirectedPaths<>(graph).getAllPaths(source, target, true, maxLength);
+            assertEquals(
+                new HashSet<>(expectedSimple), vertexListsAsSet(actualSimple),
+                "simple-mode multiset mismatch for seed=" + seed);
+
+            // Non-simple mode
+            List<List<Integer>> expectedNonSimple =
+                bruteForceWalks(graph, source, target, maxLength);
+            List<GraphPath<Integer, DefaultEdge>> actualNonSimple =
+                new AllDirectedPaths<>(graph).getAllPaths(source, target, false, maxLength);
+            assertEquals(
+                new HashSet<>(expectedNonSimple), vertexListsAsSet(actualNonSimple),
+                "non-simple-mode multiset mismatch for seed=" + seed);
+        }
+    }
+
     private static DefaultDirectedGraph<Integer, DefaultEdge> buildRandomCyclicGraph(
         Random rng, int n, double edgeProbability, double selfLoopProbability)
     {
@@ -425,6 +556,90 @@ public class AllDirectedPathsTest
             }
         }
         return graph;
+    }
+
+    private static DefaultDirectedGraph<Integer, DefaultEdge> buildRandomDigraphWithIsolatedPocket(
+        Random rng, int mainSize, int pocketSize, double edgeProbability)
+    {
+        // mainSize vertices labeled 0..mainSize-1 form the main connected component.
+        // pocketSize vertices labeled mainSize..mainSize+pocketSize-1 are a separate pocket
+        // with edges into vertex (mainSize-1) but no edges from the main component to the
+        // pocket — i.e. source-unreachable but target-reachable. Exercises the sandwich prune.
+        DefaultDirectedGraph<Integer, DefaultEdge> graph =
+            new DefaultDirectedGraph<>(DefaultEdge.class);
+        for (int v = 0; v < mainSize + pocketSize; v++) {
+            graph.addVertex(v);
+        }
+        for (int i = 0; i < mainSize; i++) {
+            for (int j = 0; j < mainSize; j++) {
+                if (i != j && rng.nextDouble() < edgeProbability) {
+                    graph.addEdge(i, j);
+                }
+            }
+        }
+        // Guarantee at least one path 0 → ... → mainSize-1 exists by adding a chain edge.
+        for (int i = 0; i + 1 < mainSize; i++) {
+            if (graph.getEdge(i, i + 1) == null) {
+                graph.addEdge(i, i + 1);
+            }
+        }
+        for (int p = 0; p < pocketSize; p++) {
+            int pocketVertex = mainSize + p;
+            graph.addEdge(pocketVertex, mainSize - 1);
+            // intra-pocket edges (do not connect back to main)
+            for (int q = 0; q < pocketSize; q++) {
+                int otherPocketVertex = mainSize + q;
+                if (p != q && rng.nextDouble() < edgeProbability) {
+                    graph.addEdge(pocketVertex, otherPocketVertex);
+                }
+            }
+        }
+        return graph;
+    }
+
+    private static Set<List<Integer>> vertexListsAsSet(List<GraphPath<Integer, DefaultEdge>> paths)
+    {
+        Set<List<Integer>> result = new HashSet<>(paths.size());
+        for (GraphPath<Integer, DefaultEdge> path : paths) {
+            result.add(path.getVertexList());
+        }
+        return result;
+    }
+
+    private static List<List<Integer>> bruteForceSimplePaths(
+        Graph<Integer, DefaultEdge> graph, Integer source, Integer target, int maxLength)
+    {
+        List<List<Integer>> paths = new ArrayList<>();
+        List<Integer> current = new ArrayList<>();
+        current.add(source);
+        Set<Integer> visited = new HashSet<>();
+        visited.add(source);
+        bruteForceSimplePathsRec(graph, target, maxLength, current, visited, paths);
+        return paths;
+    }
+
+    private static void bruteForceSimplePathsRec(
+        Graph<Integer, DefaultEdge> graph, Integer target, int remaining, List<Integer> current,
+        Set<Integer> visited, List<List<Integer>> paths)
+    {
+        Integer head = current.get(current.size() - 1);
+        if (target.equals(head)) {
+            paths.add(new ArrayList<>(current));
+        }
+        if (remaining == 0) {
+            return;
+        }
+        for (DefaultEdge edge : graph.outgoingEdgesOf(head)) {
+            Integer next = graph.getEdgeTarget(edge);
+            if (visited.contains(next)) {
+                continue;
+            }
+            current.add(next);
+            visited.add(next);
+            bruteForceSimplePathsRec(graph, target, remaining - 1, current, visited, paths);
+            current.remove(current.size() - 1);
+            visited.remove(next);
+        }
     }
 
     private static List<List<Integer>> bruteForceWalks(
