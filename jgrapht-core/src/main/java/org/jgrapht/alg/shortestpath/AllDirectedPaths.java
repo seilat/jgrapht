@@ -42,6 +42,14 @@ public class AllDirectedPaths<V, E>
     private final PathValidator<V, E> pathValidator;
 
     /**
+     * Whether to apply the opt-in sandwich prune in preprocessing. When {@code true}, a forward
+     * BFS from the source set is run before the backward edge-decoration sweep and edges that
+     * cannot lie on any source-to-target walk within the budget are dropped. When {@code false}
+     * (the default), the algorithm behaves identically to releases prior to the prune.
+     */
+    private final boolean useSandwichPrune;
+
+    /**
      * Create a new instance.
      *
      * @param graph the input graph
@@ -49,7 +57,7 @@ public class AllDirectedPaths<V, E>
      */
     public AllDirectedPaths(Graph<V, E> graph)
     {
-        this(graph, null);
+        this(graph, null, false);
     }
 
     /**
@@ -65,8 +73,35 @@ public class AllDirectedPaths<V, E>
      */
     public AllDirectedPaths(Graph<V, E> graph, PathValidator<V, E> pathValidator)
     {
+        this(graph, pathValidator, false);
+    }
+
+    /**
+     * Create a new instance with given {@code pathValidator} and {@code useSandwichPrune}.
+     *
+     * <p>
+     * When {@code useSandwichPrune} is {@code true} the preprocessing step first runs a forward
+     * BFS from the source set and uses the result to drop edges whose source endpoint is not
+     * reachable from any source within the bound, or whose forward-plus-backward length exceeds
+     * the bound. The prune is exact &mdash; it never drops an edge that could lie on a feasible
+     * source-to-target walk &mdash; and can be a large win when a substantial fraction of the
+     * graph is backward-reachable from the targets but not forward-reachable from the sources.
+     * On graphs where the sandwich condition never fires (e.g. small dense strongly-connected
+     * digraphs), enabling the prune adds the cost of one extra {@code O(V + E)} BFS per
+     * {@code getAllPaths} call.
+     * </p>
+     *
+     * @param graph the input graph
+     * @param pathValidator validator for computed paths; may be null
+     * @param useSandwichPrune whether to apply the opt-in sandwich prune in preprocessing
+     * @throws IllegalArgumentException if the graph is not directed
+     */
+    public AllDirectedPaths(
+        Graph<V, E> graph, PathValidator<V, E> pathValidator, boolean useSandwichPrune)
+    {
         this.graph = GraphTests.requireDirected(graph);
         this.pathValidator = pathValidator;
+        this.useSandwichPrune = useSandwichPrune;
     }
 
     /**
@@ -116,9 +151,15 @@ public class AllDirectedPaths<V, E>
             return Collections.emptyList();
         }
 
-        // Decorate the edges with the minimum path lengths through them
-        Map<E, Integer> edgeMinDistancesFromTargets =
-            edgeMinDistancesBackwards(targetVertices, maxPathLength);
+        // Decorate the edges with the minimum path lengths through them. When the opt-in
+        // sandwich prune is enabled, first compute forward distances from the source set and
+        // use them to drop edges that cannot lie on any feasible source -> target walk within
+        // the budget. When disabled (the default), behave identically to the historical
+        // backward-only sweep.
+        Map<V, Integer> vertexMinDistancesFromSources = useSandwichPrune
+            ? vertexMinDistancesForwards(sourceVertices, maxPathLength) : null;
+        Map<E, Integer> edgeMinDistancesFromTargets = edgeMinDistancesBackwards(
+            targetVertices, vertexMinDistancesFromSources, maxPathLength);
 
         // Generate all the paths
 
@@ -128,16 +169,38 @@ public class AllDirectedPaths<V, E>
     }
 
     /**
-     * Compute the minimum number of edges in a path to the targets through each edge, so long as it
-     * is not greater than a bound.
+     * Compute the minimum number of edges in a walk to the targets through each edge, so long as
+     * it is not greater than a bound and the edge can lie on at least one source -&gt; target walk
+     * of length at most {@code maxPathLength} (this includes every simple path of length at most
+     * {@code maxPathLength}, since every simple path is also a walk).
+     *
+     * <p>
+     * When {@code vertexMinDistancesFromSources} is non-{@code null} the sandwich condition is
+     * enforced: an edge {@code (u, v)} is retained only when {@code u} is forward-reachable from
+     * some source and {@code dF(u) + (1 + dB(v)) <= maxPathLength} (when bounded), where
+     * {@code dF(u)} is the forward BFS distance from the source set to {@code u} and
+     * {@code 1 + dB(v)} is the backward BFS distance to a target through this edge. Edges that
+     * fail the sandwich cannot appear on any feasible source -&gt; target walk and would therefore
+     * never be traversed by the forward enumeration in {@link #generatePaths} in either
+     * {@code simplePathsOnly = true} or {@code simplePathsOnly = false} mode. When
+     * {@code vertexMinDistancesFromSources} is {@code null}, the historical backward-only sweep
+     * is performed.
+     * </p>
      *
      * @param targetVertices the target vertices
+     * @param vertexMinDistancesFromSources forward BFS distances from the source set, computed
+     *        with the same {@code maxPathLength} bound; vertices not in the map are not
+     *        forward-reachable within that bound. May be {@code null} to disable the sandwich
+     *        prune.
      * @param maxPathLength maximum number of edges to allow in a path (if null, all edges will be
      *        considered, which may be expensive)
      *
-     * @return the minimum number of edges in a path from each edge to the targets, encoded in a Map
+     * @return the minimum number of edges in a path from each edge to the targets, encoded in a
+     *         Map
      */
-    private Map<E, Integer> edgeMinDistancesBackwards(Set<V> targetVertices, Integer maxPathLength)
+    private Map<E, Integer> edgeMinDistancesBackwards(
+        Set<V> targetVertices, Map<V, Integer> vertexMinDistancesFromSources,
+        Integer maxPathLength)
     {
         /*
          * We walk backwards through the network from the target vertices, marking edges and
@@ -157,8 +220,14 @@ public class AllDirectedPaths<V, E>
             }
         }
 
-        // Bootstrap the process with the target vertices
+        // Bootstrap the process with the target vertices. When the sandwich prune is enabled,
+        // skip targets that no source can reach within the budget.
         for (V target : targetVertices) {
+            if (vertexMinDistancesFromSources != null
+                && !vertexMinDistancesFromSources.containsKey(target))
+            {
+                continue;
+            }
             vertexMinDistances.put(target, 0);
             verticesToProcess.add(target);
         }
@@ -172,6 +241,27 @@ public class AllDirectedPaths<V, E>
             // Check whether the incoming edges of this node are correctly
             // decorated
             for (E edge : graph.incomingEdgesOf(vertex)) {
+                V edgeSource = graph.getEdgeSource(edge);
+
+                // Sandwich prune (opt-in): drop edges whose source side is not reachable from
+                // the source set, or whose total forward + backward length already exceeds the
+                // budget. Skipped entirely when the prune is disabled. The bound comparison is
+                // written as (forwardOfSource > maxPathLength - childDistance) rather than the
+                // addition form to avoid integer overflow at extreme maxPathLength values; the
+                // BFS bounds guarantee childDistance <= maxPathLength when maxPathLength is set,
+                // so the right-hand side is non-negative.
+                if (vertexMinDistancesFromSources != null) {
+                    Integer forwardOfSource = vertexMinDistancesFromSources.get(edgeSource);
+                    if (forwardOfSource == null) {
+                        continue;
+                    }
+                    if (maxPathLength != null
+                        && forwardOfSource > maxPathLength - childDistance)
+                    {
+                        continue;
+                    }
+                }
+
                 // Mark the edge if needed
                 if (!edgeMinDistances.containsKey(edge)
                     || (edgeMinDistances.get(edge) > childDistance))
@@ -180,7 +270,6 @@ public class AllDirectedPaths<V, E>
                 }
 
                 // Mark the edge's source vertex if needed
-                V edgeSource = graph.getEdgeSource(edge);
                 if (!vertexMinDistances.containsKey(edgeSource)
                     || (vertexMinDistances.get(edgeSource) > childDistance))
                 {
@@ -195,6 +284,51 @@ public class AllDirectedPaths<V, E>
 
         assert verticesToProcess.isEmpty();
         return edgeMinDistances;
+    }
+
+    /**
+     * Compute the minimum number of edges in a forward BFS from the source vertices, capped at
+     * {@code maxPathLength} when given. Used together with
+     * {@link #edgeMinDistancesBackwards(Set, Map, Integer)} to apply sandwich-style pruning of the
+     * edge decoration map.
+     *
+     * @param sourceVertices the source vertices
+     * @param maxPathLength maximum number of forward edges to expand (if null, the BFS is
+     *        unrestricted)
+     *
+     * @return for every vertex reachable from {@code sourceVertices} within {@code maxPathLength}
+     *         edges, its minimum forward distance from the source set
+     */
+    private Map<V, Integer> vertexMinDistancesForwards(
+        Set<V> sourceVertices, Integer maxPathLength)
+    {
+        Map<V, Integer> vertexMinDistances = new HashMap<>();
+        Queue<V> verticesToProcess = new ArrayDeque<>();
+
+        for (V source : sourceVertices) {
+            if (!vertexMinDistances.containsKey(source)) {
+                vertexMinDistances.put(source, 0);
+                verticesToProcess.add(source);
+            }
+        }
+
+        for (V vertex; (vertex = verticesToProcess.poll()) != null;) {
+            int currentDistance = vertexMinDistances.get(vertex);
+            if (maxPathLength != null && currentDistance >= maxPathLength) {
+                continue;
+            }
+            int childDistance = currentDistance + 1;
+
+            for (E edge : graph.outgoingEdgesOf(vertex)) {
+                V child = graph.getEdgeTarget(edge);
+                if (!vertexMinDistances.containsKey(child)) {
+                    vertexMinDistances.put(child, childDistance);
+                    verticesToProcess.add(child);
+                }
+            }
+        }
+
+        return vertexMinDistances;
     }
 
     /**
