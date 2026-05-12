@@ -58,7 +58,12 @@ import java.util.concurrent.TimeUnit;
  * @author Shai Eilat
  */
 @BenchmarkMode(Mode.AverageTime)
-@Fork(value = 1, warmups = 0)
+@Fork(value = 1, warmups = 0, jvmArgs = {
+    "--add-opens=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm=ALL-UNNAMED",
+    "--add-opens=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm.jmh_generated=ALL-UNNAMED",
+    "--add-exports=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm=ALL-UNNAMED",
+    "--add-exports=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm.jmh_generated=ALL-UNNAMED"
+})
 @Warmup(iterations = 2, time = 5)
 @Measurement(iterations = 3, time = 10)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
@@ -94,31 +99,60 @@ public class AndorraAllDirectedPathsNonSimpleBench
             int n = data.graph.vertexSet().size();
             Random rnd = new Random(13L);
 
-            for (int attempt = 0; attempt < 50; attempt++) {
+            // best-effort search: pick the first anchor whose BFS ball is non-trivial
+            // and yields any reachable target at least 2 hops away. Sparse rural roads
+            // dominate Andorra, so tight size brackets fail too often.
+            int bestSize = -1;
+            Integer bestAnchor = null;
+            Set<Integer> bestBall = null;
+            Integer bestSink = null;
+            int bestHops = -1;
+            for (int attempt = 0; attempt < 400; attempt++) {
                 Integer anchor = rnd.nextInt(n);
                 Set<Integer> ball = bfsBall(anchor, bfsRadius);
-                if (ball.size() < 40 || ball.size() > 400) {
+                if (ball.size() < 8) {
                     continue;
                 }
                 Integer cand = null;
-                int bestHops = -1;
+                int candHops = -1;
                 for (Integer v : ball) {
                     if (!v.equals(anchor) && data.graph.outDegreeOf(v) > 0) {
                         int h = bfsHops(anchor, v, bfsRadius);
-                        if (h > bestHops) {
-                            bestHops = h;
+                        if (h > candHops) {
+                            candHops = h;
                             cand = v;
                         }
                     }
                 }
-                if (cand != null && bestHops >= 3) {
-                    subgraph = new AsSubgraph<>(data.graph, ball);
-                    source = anchor;
-                    sink = cand;
-                    return;
+                if (cand == null || candHops < 2) {
+                    continue;
+                }
+                // prefer a "richer" subgraph (more vertices) but cap so non-simple
+                // enumeration stays under a few seconds per query.
+                if (ball.size() <= 1500 && ball.size() > bestSize) {
+                    bestSize = ball.size();
+                    bestAnchor = anchor;
+                    bestBall = ball;
+                    bestSink = cand;
+                    bestHops = candHops;
+                    if (ball.size() >= 120 && candHops >= 3) {
+                        // good enough, stop early
+                        break;
+                    }
                 }
             }
-            throw new IllegalStateException("could not carve a suitable Andorra subgraph");
+            if (bestBall == null) {
+                throw new IllegalStateException(
+                    "could not carve any Andorra subgraph after 400 anchor attempts");
+            }
+            subgraph = new AsSubgraph<>(data.graph, bestBall);
+            source = bestAnchor;
+            sink = bestSink;
+            // log via a sentinel field; JMH suppresses System.out during measurement
+            // but the trial setup phase prints to surefire output.
+            System.out.printf(
+                "[AndorraAdpState] ball=%d, src=%d sink=%d hops=%d radius=%d maxPathLen=%d%n",
+                bestBall.size(), bestAnchor, bestSink, bestHops, bfsRadius, maxPathLen);
         }
 
         private Set<Integer> bfsBall(Integer start, int radius)

@@ -51,10 +51,20 @@ import java.util.concurrent.TimeUnit;
  *
  * @author Shai Eilat
  */
-@BenchmarkMode(Mode.AverageTime)
-@Fork(value = 1, warmups = 0)
-@Warmup(iterations = 2, time = 5)
-@Measurement(iterations = 3, time = 10)
+// SingleShotTime + 1 measurement iteration: the pre-PR-#1340 implementation of
+// getPaths(V) iterates over EVERY vertex in the graph (not the |T| targets), running a
+// Dijkstra per vertex. On Andorra (36,618 vertices) a single call costs ~210 s, so the
+// average-time / multi-iteration JMH mode is not workable. One measured call is enough
+// to demonstrate the cost; after PR #1340 the bench can be moved back to AverageTime.
+@BenchmarkMode(Mode.SingleShotTime)
+@Fork(value = 1, warmups = 0, jvmArgs = {
+    "--add-opens=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm=ALL-UNNAMED",
+    "--add-opens=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm.jmh_generated=ALL-UNNAMED",
+    "--add-exports=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm=ALL-UNNAMED",
+    "--add-exports=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm.jmh_generated=ALL-UNNAMED"
+})
+@Warmup(iterations = 0)
+@Measurement(iterations = 1)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 public class AndorraDijkstraManyToManyGetPathsBench
 {
@@ -73,10 +83,14 @@ public class AndorraDijkstraManyToManyGetPathsBench
     @State(Scope.Benchmark)
     public static class AndorraM2MState
     {
-        @Param({ "10", "50", "100" })
-        int sourceCount;
-        @Param({ "10", "50", "100" })
-        int targetCount;
+        /**
+         * Fixed at {@code n} = 2. The pre-PR-#1340 implementation of {@code getPaths(V)}
+         * iterates {@code graph.vertexSet()} rather than {@code targets} and runs a
+         * Dijkstra per vertex; the cost is dominated by the 36,618-vertex sweep, not by
+         * {@code n}. After PR #1340 a single Dijkstra suffices.
+         */
+        @Param({ "2" })
+        int n;
 
         AndorraGraphLoader.AndorraData data;
         Set<Integer> sources;
@@ -86,15 +100,15 @@ public class AndorraDijkstraManyToManyGetPathsBench
         public void load()
         {
             data = AndorraGraphLoader.load();
-            int n = data.graph.vertexSet().size();
+            int v = data.graph.vertexSet().size();
             Random rnd = new Random(11L);
             sources = new HashSet<>();
-            while (sources.size() < sourceCount) {
-                sources.add(rnd.nextInt(n));
+            while (sources.size() < n) {
+                sources.add(rnd.nextInt(v));
             }
             targets = new HashSet<>();
-            while (targets.size() < targetCount) {
-                targets.add(rnd.nextInt(n));
+            while (targets.size() < n) {
+                targets.add(rnd.nextInt(v));
             }
         }
     }

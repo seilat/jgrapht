@@ -60,7 +60,12 @@ import java.util.concurrent.TimeUnit;
  * @author Shai Eilat
  */
 @BenchmarkMode(Mode.AverageTime)
-@Fork(value = 1, warmups = 0)
+@Fork(value = 1, warmups = 0, jvmArgs = {
+    "--add-opens=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm=ALL-UNNAMED",
+    "--add-opens=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm.jmh_generated=ALL-UNNAMED",
+    "--add-exports=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm=ALL-UNNAMED",
+    "--add-exports=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm.jmh_generated=ALL-UNNAMED"
+})
 @Warmup(iterations = 2, time = 5)
 @Measurement(iterations = 3, time = 10)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
@@ -101,7 +106,10 @@ public class AndorraBoundedPrunedYenBench
     @State(Scope.Benchmark)
     public static class AndorraYenState
     {
-        @Param({ "1", "5", "25" })
+        // k=1 is just the underlying shortest-path engine; k=5 exercises the
+        // bounded-prune candidate heap. Higher k values keep classical Yen running
+        // for >30 s per query on Andorra, so we cap here.
+        @Param({ "1", "5" })
         int k;
 
         AndorraGraphLoader.AndorraData data;
@@ -113,8 +121,12 @@ public class AndorraBoundedPrunedYenBench
             data = AndorraGraphLoader.load();
             int n = data.graph.vertexSet().size();
             Random rnd = new Random(7L);
-            queries = new ArrayList<>(20);
-            while (queries.size() < 20) {
+            // 3 queries: classical Yen at k=5 averages ~5–10 s per query on
+            // Andorra, so 3 queries per @Benchmark invocation keeps each JMH
+            // iteration around 30 s (and lets BoundedPrunedYen still show its
+            // amortised advantage).
+            queries = new ArrayList<>(3);
+            while (queries.size() < 3) {
                 int src = rnd.nextInt(n);
                 int dst = rnd.nextInt(n);
                 if (src != dst) {
