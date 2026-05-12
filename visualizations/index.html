@@ -1,0 +1,1791 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bounded-Pruned Yen + A* — interactive visualization</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --panel-2: #1c2230;
+    --ink: #e6e8ef;
+    --muted: #8a93a6;
+    --accent: #6cb3ff;
+    --accent2: #8ee08e;
+    --warn: #f3c04a;
+    --bad: #f06f6f;
+    --grid: #2a3142;
+    --edge: #4a5066;
+    --edge-banned: #f06f6f;
+    --edge-active: #6cb3ff;
+    --edge-final: #8ee08e;
+    --node-fill: #2a3142;
+    --node-stroke: #6c7488;
+    --node-explored: #8ee08e;
+    --node-active: #f3c04a;
+    --node-source: #6cb3ff;
+    --node-target: #c58cf0;
+  }
+  html, body { background: var(--bg); color: var(--ink); margin: 0; font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  header {
+    padding: 14px 18px; border-bottom: 1px solid #232838;
+    display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 10px 18px; background: var(--panel); border-bottom: 1px solid #232838;
+  }
+  .controls label { color: var(--muted); margin-left: 6px; }
+  .controls select, .controls button, .controls input[type=range] {
+    background: var(--panel-2); color: var(--ink);
+    border: 1px solid #2c3447; padding: 6px 10px; border-radius: 6px;
+    font: inherit;
+  }
+  .controls button { cursor: pointer; }
+  .controls button:hover { border-color: var(--accent); }
+  .controls button.primary { background: var(--accent); color: #0a0e16; border-color: var(--accent); font-weight: 600; }
+  .controls button.primary:hover { filter: brightness(1.08); }
+  .controls .spacer { flex: 1; }
+  .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
+  .pane {
+    background: var(--panel); border: 1px solid #232838; border-radius: 10px;
+    display: flex; flex-direction: column; min-height: 540px;
+  }
+  .pane h2 {
+    margin: 0; padding: 10px 14px; font-size: 14px; font-weight: 600;
+    border-bottom: 1px solid #232838; display: flex; align-items: center; gap: 8px;
+  }
+  .pane h2 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-weight: 500; }
+  .pane .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+    border-bottom: 1px solid #232838;
+  }
+  .pane .stat { padding: 8px 12px; border-right: 1px solid #232838; }
+  .pane .stat:last-child { border-right: none; }
+  .pane .stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .pane .stat .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pane canvas { display: block; width: 100%; height: 360px; background: var(--panel-2); }
+  .pane .status { padding: 8px 12px; color: var(--muted); border-top: 1px solid #232838; min-height: 22px; }
+  .pane .status .tag { display: inline-block; padding: 1px 8px; border-radius: 4px; margin-right: 6px; font-weight: 600; font-size: 11px; }
+  .tag-spur   { background: #314c75; color: #cfe1ff; }
+  .tag-skip   { background: #4a3a3a; color: #f3c0a4; }
+  .tag-prune  { background: #4a3a3a; color: #f3c0a4; }
+  .tag-cand   { background: #2f4a35; color: #c8efcb; }
+  .tag-accept { background: #2f4a35; color: #c8efcb; }
+  .tag-expand { background: #3d3a26; color: #f3e0a4; }
+  .tag-info   { background: #2c3447; color: #b9c2d8; }
+  .legend {
+    grid-column: 1 / -1; padding: 8px 14px; color: var(--muted);
+    background: var(--panel); border: 1px solid #232838; border-radius: 10px;
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+  }
+  .legend .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; margin-right: 6px; border: 1px solid #2a3142; }
+  .results {
+    grid-column: 1 / -1; padding: 10px 14px; background: var(--panel);
+    border: 1px solid #232838; border-radius: 10px;
+  }
+  .results h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .results .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+  .results ol { margin: 0; padding-left: 20px; }
+  .results li { font-variant-numeric: tabular-nums; margin: 2px 0; }
+  .narrative {
+    grid-column: 1 / -1; padding: 14px;
+    background: var(--panel); border: 1px solid #232838; border-radius: 10px;
+    color: var(--ink);
+  }
+  .narrative h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--accent); }
+  .narrative h4 { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: #cfe1ff; text-transform: uppercase; letter-spacing: 0.04em; }
+  .narrative p { margin: 6px 0; color: #c0c6d6; }
+  .narrative code { background: #0a0e16; padding: 1px 5px; border-radius: 4px; color: #cfe1ff; }
+  .narrative ul { margin: 4px 0 6px 18px; padding: 0; color: #c0c6d6; }
+  .narrative li { margin: 2px 0; }
+  .glossary {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
+    padding: 10px;
+    background: var(--panel); border: 1px solid #232838; border-radius: 10px;
+  }
+  .glossary .card { background: var(--panel-2); border-radius: 6px; padding: 8px 10px; }
+  .glossary .card .term { color: var(--accent); font-weight: 600; font-size: 12px; }
+  .glossary .card .def { color: #c0c6d6; font-size: 12px; line-height: 1.4; margin-top: 3px; }
+  .pane .event-info {
+    padding: 8px 12px; color: #c0c6d6; border-top: 1px solid #232838;
+    background: #131822; min-height: 36px; font-size: 12px; line-height: 1.45;
+  }
+  .pane .event-info b { color: #cfe1ff; }
+  @media (max-width: 1100px) { .panes { grid-template-columns: 1fr; } .results .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Bounded-Pruned Yen + A* — interactive visualization</h1>
+  <span class="sub">Compares vanilla Yen + Dijkstra against bounded-pruned Yen + A* on the same input.</span>
+</header>
+
+<div class="controls">
+  <label for="mode">Mode</label>
+  <select id="mode">
+    <option value="yen">K-shortest paths (Yen)</option>
+    <option value="single">Single shortest path (Dijkstra vs A*)</option>
+    <option value="sandwich">All paths — sandwich prune (AllDirectedPaths)</option>
+  </select>
+  <label for="budget" id="budgetLabel">Max length</label>
+  <select id="budget">
+    <option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option>
+  </select>
+  <label for="example">Example</label>
+  <select id="example">
+    <option value="grid">Grid 6×5 (A* heuristic shines)</option>
+    <option value="chain">Path chain (impossible-spur skip)</option>
+    <option value="wiki">Yen Wikipedia 6-node graph</option>
+  </select>
+  <label for="k">K</label>
+  <select id="k">
+    <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option>
+  </select>
+  <button id="run" class="primary">Run</button>
+  <button id="play">▶ Play</button>
+  <button id="pause" disabled>❚❚ Pause</button>
+  <button id="step">Step</button>
+  <button id="reset">Reset</button>
+  <label for="speed">Speed</label>
+  <input id="speed" type="range" min="60" max="1200" value="450" step="20">
+  <span id="speedLbl" class="sub">450 ms/step</span>
+  <span class="spacer"></span>
+  <span id="progress" class="sub">step 0 / 0</span>
+</div>
+
+<div class="panes">
+
+  <div class="pane" id="paneA">
+    <h2 id="A_h2"></h2>
+    <div class="stats">
+      <div class="stat"><div class="k" id="A_lbl0"></div><div class="v" id="A_slot0">0</div></div>
+      <div class="stat"><div class="k" id="A_lbl1"></div><div class="v" id="A_slot1">0</div></div>
+      <div class="stat"><div class="k" id="A_lbl2"></div><div class="v" id="A_slot2">0</div></div>
+      <div class="stat"><div class="k" id="A_lbl3"></div><div class="v" id="A_slot3">0</div></div>
+    </div>
+    <canvas id="canvasA"></canvas>
+    <div class="status" id="statusA">Ready.</div>
+    <div class="event-info" id="eventInfoA">Pick a mode and an example above, then press <b>Play</b>.</div>
+  </div>
+
+  <div class="pane" id="paneB">
+    <h2 id="B_h2"></h2>
+    <div class="stats">
+      <div class="stat"><div class="k" id="B_lbl0"></div><div class="v" id="B_slot0">0</div></div>
+      <div class="stat"><div class="k" id="B_lbl1"></div><div class="v" id="B_slot1">0</div></div>
+      <div class="stat"><div class="k" id="B_lbl2"></div><div class="v" id="B_slot2">0</div></div>
+      <div class="stat"><div class="k" id="B_lbl3"></div><div class="v" id="B_slot3">0</div></div>
+    </div>
+    <canvas id="canvasB"></canvas>
+    <div class="status" id="statusB">Ready.</div>
+    <div class="event-info" id="eventInfoB">Pick a mode and an example above, then press <b>Play</b>.</div>
+  </div>
+
+  <div class="legend">
+    <span><span class="sw" style="background:var(--node-source)"></span>source</span>
+    <span><span class="sw" style="background:var(--node-target)"></span>target</span>
+    <span><span class="sw" style="background:var(--node-active)"></span>spur node / current expansion</span>
+    <span><span class="sw" style="background:var(--node-explored)"></span>explored by current spur</span>
+    <span><span class="sw" style="background:var(--edge-banned);height:4px;border-radius:2px"></span>banned edge (Yen rule)</span>
+    <span><span class="sw" style="background:var(--edge-active);height:4px;border-radius:2px"></span>current spur path</span>
+    <span><span class="sw" style="background:var(--edge-final);height:4px;border-radius:2px"></span>accepted k-th path</span>
+  </div>
+
+  <div class="results">
+    <div class="row">
+      <div>
+        <h3>Vanilla — paths found</h3>
+        <ol id="A_paths"></ol>
+      </div>
+      <div>
+        <h3>Bounded-pruned — paths found</h3>
+        <ol id="B_paths"></ol>
+      </div>
+    </div>
+  </div>
+
+  <div class="glossary" id="glossary">
+    <div class="card"><div class="term">Expand a node</div><div class="def">Pop the cheapest entry from the priority queue (the open set) and commit its final shortest distance from the source. Once expanded, a node is never reopened (with non-negative weights).</div></div>
+    <div class="card"><div class="term">Relax an edge</div><div class="def">For an edge <code>u → v</code> with weight <code>w</code>, check whether <code>dist[u] + w</code> beats <code>v</code>'s current tentative distance. If so, update <code>v</code> and push it into the heap.</div></div>
+    <div class="card"><div class="term">Open set / frontier</div><div class="def">The priority queue of nodes we've discovered but not yet expanded. Its peak size is one measure of memory pressure.</div></div>
+    <div class="card"><div class="term">Heuristic <code>h(v)</code></div><div class="def">An estimate of the remaining cost from <code>v</code> to the target. A* orders the queue by <code>f(v) = g(v) + h(v)</code> instead of just <code>g(v)</code>.</div></div>
+    <div class="card"><div class="term">Admissible heuristic</div><div class="def">Never overestimates the true remaining cost. Required for A* to return an optimal path. The reverse-Dijkstra distance on the original graph is admissible by construction — removing edges or vertices only makes paths longer.</div></div>
+    <div class="card"><div class="term">Spur node (Yen)</div><div class="def">The branching point in Yen's algorithm: the next candidate path follows the previous accepted path up to this node, then deviates.</div></div>
+    <div class="card"><div class="term">Banned edge (Yen)</div><div class="def">Removed from the spur sub-search so the resulting path can't re-create an already-accepted path with the same prefix. Internal nodes of the prefix are also banned to keep the path simple.</div></div>
+    <div class="card"><div class="term">Lower bound (bounded-pruned)</div><div class="def"><code>prefixCost + h[spurNode]</code> — a provable minimum for any path built off this spur. If it already exceeds the cheapest candidate we've found, the spur cannot win and is pruned without running.</div></div>
+  </div>
+
+  <div class="narrative" id="narrativeYen">
+    <h3>What you're watching — K-shortest paths with Yen</h3>
+    <p>
+      Both panels enumerate the <code>K</code> cheapest <em>simple</em> paths from source (blue) to
+      target (purple), in order of cost.
+    </p>
+    <h4>Yen's algorithm (the shared backbone)</h4>
+    <ol style="margin:4px 0 6px 18px; padding:0; color:#c0c6d6;">
+      <li>Find the first shortest path with a single Dijkstra (the <em>initial path</em>) — that's accept #1.</li>
+      <li>To produce the next path, walk every prefix of the previous accepted path. For each prefix:
+        <ul>
+          <li>The last node of the prefix is the <b>spur node</b>.</li>
+          <li><b>Ban</b> every edge that, taken next, would re-create an already-accepted path sharing this same prefix (Yen rule).</li>
+          <li><b>Ban</b> every node strictly inside the prefix so the spur can't loop back through it (simple-path rule).</li>
+          <li>Run a shortest-path search from the spur node to the target on this masked graph. <em>prefix + spur path</em> is a candidate.</li>
+        </ul>
+      </li>
+      <li>The cheapest candidate is promoted to the next accepted path. Repeat until you have <code>K</code>.</li>
+    </ol>
+    <h4>Left panel — vanilla Yen + Dijkstra</h4>
+    <p>
+      Runs a fresh Dijkstra at every spur position. No regard to whether the resulting path could
+      even beat what we already know, no regard to whether the Yen rule has cut off the only useful
+      exit from the spur node. The <em>node expansions</em> counter sums work across every Dijkstra.
+    </p>
+    <h4>Right panel — bounded-pruned Yen + A*</h4>
+    <p>
+      Three separable changes, all preserving exactness:
+    </p>
+    <ul>
+      <li><b>Spur task queue.</b> Spurs are queued, keyed by an admissible lower bound
+        <code>prefixCost + h[spurNode]</code>, where <code>h</code> is the reverse-Dijkstra
+        distance on the original graph. Bans only make distances bigger, so this stays
+        admissible.</li>
+      <li><b>Lower-bound pruning.</b> While the cheapest queued task's lower bound is already ≥
+        the cheapest known candidate cost, pop it and discard it without running anything.</li>
+      <li><b>Impossible-spur skip.</b> Before invoking A*, check whether every outgoing edge of
+        the spur node is banned by the combined rules. If yes, no path can exist — skip exactly.
+        This collapses the path-chain pathology to <em>zero</em> spur searches.</li>
+      <li><b>A* spur engine.</b> Each spur that does run uses A* with the same reverse-Dijkstra
+        as heuristic — so each sub-search is itself cheaper than the corresponding Dijkstra.</li>
+    </ul>
+    <h4>What to watch</h4>
+    <p>
+      Compare the <em>spur tasks</em> and <em>node expansions</em> counters at the top of each
+      pane. On the chain example the bounded driver runs the initial A* and zero further
+      searches. On the grid example A*'s heuristic collapses each spur to a near-straight line,
+      and a chunk of spur tasks get pruned by lower bound before they ever run.
+    </p>
+  </div>
+
+  <div class="narrative" id="narrativeSandwich" hidden>
+    <h3>What you're watching — AllDirectedPaths sandwich prune</h3>
+    <p>
+      <code>AllDirectedPaths</code> enumerates every directed s → t walk of length at most
+      <code>maxPathLength</code>. Before enumeration starts, it pre-decorates each edge with the
+      minimum number of edges to a target through that edge — anything not on a short-enough
+      route to a target is dropped from the search space.
+    </p>
+    <h4>Shared scaffolding (both panels)</h4>
+    <p>
+      A reverse BFS from the target set (here, just <code>T</code>) walks backwards along
+      incoming edges. For each edge <code>u → v</code> encountered while popping <code>v</code>,
+      we record <code>dB(edge) = 1 + dB(v)</code>, the minimum backward distance from <code>u</code>
+      to the target through this edge.
+    </p>
+    <h4>Left — backward BFS only (baseline)</h4>
+    <p>
+      Mark every edge whose head is backward-reachable to a target within <code>budget</code>
+      hops. Nothing checks whether the edge's tail is itself reachable from a source, or whether
+      a feasible source → target walk through this edge could even fit within the budget.
+      That includes "orphan" branches that reach the target but have no incoming connection
+      from the source — wasted bookkeeping.
+    </p>
+    <h4>Right — sandwich prune (new)</h4>
+    <p>
+      Run a one-time forward BFS from the sources first; cache <code>dF(v)</code> for every
+      vertex it reaches (highlighted with a cyan dashed halo). Then, during the backward BFS,
+      gate each candidate edge <code>u → v</code> by two conditions:
+    </p>
+    <ul>
+      <li><b>Forward-reachability.</b> If <code>u</code> isn't in the forward-BFS map at all,
+        no source can reach this edge — drop it.</li>
+      <li><b>Length sandwich.</b> If <code>dF(u) + 1 + dB(v) &gt; budget</code>, no walk
+        through this edge can stay within the length limit — drop it.</li>
+    </ul>
+    <p>
+      Edges retained satisfy both conditions, so each one lies on at least one feasible
+      source → target walk of length ≤ budget. Every simple path is also a walk, so the prune
+      preserves the exact answer in both <em>simple-only</em> and <em>all-walks</em> modes.
+    </p>
+    <h4>What to watch</h4>
+    <ul>
+      <li>On the <b>Garden</b> example, the orphan branch <code>x → y → T</code> is happily
+        marked by the left pane but dropped on the right (those edges turn red, never green) —
+        their source side is unreachable from <code>S</code>.</li>
+      <li>On the <b>Tight-budget diamond</b> with <code>maxPathLength = 2</code>, the right pane
+        drops the long route <code>S → b → c → T</code> entirely. The left pane retains parts
+        of it because individual edges fit under the backward budget, even though no length-2
+        walk can use them.</li>
+      <li>The <b>edges retained</b> counter is the size of the decoration map the path-
+        enumeration step will iterate over — a smaller map is straight-line faster.</li>
+    </ul>
+  </div>
+
+  <div class="narrative" id="narrativeSingle" hidden>
+    <h3>What you're watching — single shortest path</h3>
+    <p>
+      Both panels answer the same question: <em>what is the cheapest path from source (blue) to
+      target (purple), and how many nodes did the algorithm have to look at to find it?</em>
+    </p>
+    <h4>Shared mechanics</h4>
+    <p>
+      Both maintain a priority queue (the <b>open set</b>) of nodes whose tentative cost from the
+      source is known. On each step the algorithm pops the cheapest entry — we say it
+      <b>expands</b> that node — and <b>relaxes</b> each outgoing edge: for every neighbour, if the
+      new tentative cost through the just-expanded node beats the current best, the neighbour is
+      updated and (re)pushed into the queue. The green tint marks nodes that have been
+      expanded; that set is the algorithm's effort.
+    </p>
+    <h4>Left panel — standard Dijkstra</h4>
+    <p>
+      Priority key is <code>g(v)</code>, the cost from source to <code>v</code>. Dijkstra
+      always expands the cheapest unsettled node in the whole graph, regardless of where the
+      target sits. That's why its frontier grows as a roughly circular wave outward from the
+      source. On the grid, Dijkstra ends up settling almost every node before it touches the
+      target.
+    </p>
+    <h4>Right panel — A* with reverse-Dijkstra heuristic</h4>
+    <p>
+      Priority key is <code>f(v) = g(v) + h(v)</code>, where <code>h(v)</code> is an estimate of
+      the remaining cost from <code>v</code> to the target. Because <code>h</code> must be
+      admissible (never overestimate), the heuristic used here is computed by a one-time
+      <em>reverse Dijkstra</em> from the target on the original graph — that's exact on the
+      unconstrained graph. With an exact heuristic, A* expands only nodes on a shortest path
+      and walks straight from source to target.
+    </p>
+    <h4>Trade-off</h4>
+    <p>
+      A*'s win isn't free: that reverse Dijkstra is itself a full Dijkstra from the target. If you
+      only ever need a single shortest path, plain Dijkstra is usually the better choice. The
+      heuristic earns its keep when it's <em>reused</em> across many searches — exactly what
+      happens inside <code>BoundedPrunedYenKShortestPath</code>, where it heuristic-guides every
+      spur and acts as the lower-bound oracle for pruning.
+    </p>
+    <h4>What to watch</h4>
+    <ul>
+      <li><b>Nodes expanded</b> — the algorithm's primary effort. On the grid this is where A*
+        wins big.</li>
+      <li><b>Edges relaxed</b> — every time a neighbour's tentative distance was tightened. With
+        an exact heuristic A* relaxes the same edges as Dijkstra <em>along</em> the path but
+        skips most of the off-path relaxations.</li>
+      <li><b>Path cost</b> and <b>path length</b> — the answer. Both algorithms agree.</li>
+      <li>The chain example has only one possible path, so Dijkstra and A* take the same
+        number of expansions. The grid is where A*'s win is dramatic.</li>
+    </ul>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+ * Graph & priority queue
+ * ============================================================ */
+
+class MinHeap {
+  constructor(cmp) { this.a = []; this.cmp = cmp || ((x, y) => x - y); }
+  size() { return this.a.length; }
+  isEmpty() { return this.a.length === 0; }
+  push(v) {
+    this.a.push(v);
+    let i = this.a.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this.cmp(this.a[i], this.a[p]) < 0) { [this.a[i], this.a[p]] = [this.a[p], this.a[i]]; i = p; }
+      else break;
+    }
+  }
+  pop() {
+    if (this.a.length === 0) return undefined;
+    const top = this.a[0];
+    const last = this.a.pop();
+    if (this.a.length > 0) {
+      this.a[0] = last;
+      let i = 0;
+      const n = this.a.length;
+      for (;;) {
+        const l = 2 * i + 1, r = 2 * i + 2;
+        let s = i;
+        if (l < n && this.cmp(this.a[l], this.a[s]) < 0) s = l;
+        if (r < n && this.cmp(this.a[r], this.a[s]) < 0) s = r;
+        if (s === i) break;
+        [this.a[i], this.a[s]] = [this.a[s], this.a[i]];
+        i = s;
+      }
+    }
+    return top;
+  }
+}
+
+/**
+ * Directed weighted graph with positions for rendering.
+ *  nodes: [{ id, x, y }]
+ *  edges: [{ u, v, w }]   // directed u -> v with weight w
+ */
+function buildGraph(spec) {
+  const nodes = spec.nodes;
+  const idx = new Map(nodes.map((n, i) => [n.id, i]));
+  const adj = nodes.map(() => []);
+  const radj = nodes.map(() => []);
+  const edges = [];
+  for (const e of spec.edges) {
+    const ui = idx.get(e.u), vi = idx.get(e.v);
+    if (ui == null || vi == null) throw new Error("bad edge " + JSON.stringify(e));
+    const w = e.w ?? 1;
+    const eIdx = edges.length;
+    edges.push({ u: ui, v: vi, w });
+    adj[ui].push(eIdx);
+    radj[vi].push(eIdx);
+  }
+  return {
+    nodes, edges, adj, radj, idx,
+    source: idx.get(spec.source),
+    target: idx.get(spec.target),
+    title: spec.title,
+  };
+}
+
+/* ============================================================
+ * Examples
+ * ============================================================ */
+
+const EXAMPLES = {
+
+  // --- Yen Wikipedia example -----------------------------------------------
+  // C, D, E, F, G, H. Classic teaching graph, undirected -> represent as
+  // both directions.
+  wiki: () => {
+    const positions = {
+      C: { x: 0.10, y: 0.50 },
+      D: { x: 0.32, y: 0.20 },
+      E: { x: 0.32, y: 0.80 },
+      F: { x: 0.58, y: 0.20 },
+      G: { x: 0.58, y: 0.80 },
+      H: { x: 0.85, y: 0.50 },
+    };
+    const undirected = [
+      ["C", "D", 3], ["C", "E", 2],
+      ["D", "F", 4],
+      ["E", "D", 1], ["E", "F", 2], ["E", "G", 3],
+      ["F", "G", 2], ["F", "H", 1],
+      ["G", "H", 2],
+    ];
+    const edges = [];
+    for (const [u, v, w] of undirected) {
+      edges.push({ u, v, w });
+      edges.push({ u: v, v: u, w });
+    }
+    return {
+      title: "Yen Wikipedia 6-node graph",
+      nodes: Object.entries(positions).map(([id, p]) => ({ id, x: p.x, y: p.y })),
+      edges,
+      source: "C",
+      target: "H",
+    };
+  },
+
+  // --- 6x5 weighted grid --------------------------------------------------
+  // 4-connected grid with position-dependent edge weights. Symmetric in
+  // (u, v) so undirected pairs share weight. Weights break the unit-grid
+  // tie degeneracy: there is now a unique shortest path, and both engines
+  // agree on it. Reverse Dijkstra on the same weights stays admissible, so
+  // A*'s heuristic remains exact and its search collapses onto the
+  // optimal path nodes — vanilla Dijkstra still has to fan out.
+  grid: () => {
+    const W = 6, H = 5;
+    const nodes = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      nodes.push({ id: `${x},${y}`, x: 0.08 + 0.84 * (x / (W - 1)), y: 0.10 + 0.80 * (y / (H - 1)) });
+    }
+    function w(ax, ay, bx, by) {
+      // Sort endpoints so (a,b) and (b,a) hash identically.
+      let px = ax, py = ay, qx = bx, qy = by;
+      if (ax > bx || (ax === bx && ay > by)) { px = bx; py = by; qx = ax; qy = ay; }
+      // Coefficients chosen so both horizontal and vertical neighbour pairs
+      // depend on (px, py) and span all three residues mod 3. Earlier
+      // attempts (7/11/13/17 mod 4 and 5/7/9/11 mod 4) collapsed because
+      // mod-4 of (a+b) for adjacent a,b has fixed parity.
+      return ((px * 1 + py * 5 + qx * 4 + qy * 2) % 3) + 1;
+    }
+    const edges = [];
+    const id = (x, y) => `${x},${y}`;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (x + 1 < W) { const ww = w(x, y, x + 1, y); edges.push({ u: id(x, y), v: id(x + 1, y), w: ww }); edges.push({ u: id(x + 1, y), v: id(x, y), w: ww }); }
+      if (y + 1 < H) { const ww = w(x, y, x, y + 1); edges.push({ u: id(x, y), v: id(x, y + 1), w: ww }); edges.push({ u: id(x, y + 1), v: id(x, y), w: ww }); }
+    }
+    return {
+      title: "Grid 6×5 (weighted)",
+      nodes, edges,
+      source: id(0, 0),
+      target: id(W - 1, H - 1),
+    };
+  },
+
+  // --- Sandwich: "garden" -------------------------------------------------
+  // Demonstrates source-disconnected garden. Nodes x, y are backward-
+  // reachable to T but not forward-reachable from S. Without sandwich,
+  // the backward BFS still decorates the edges y→T and x→y. With
+  // sandwich, those edges fail the forward-reachability check and are
+  // dropped.
+  garden: () => ({
+    title: "Garden — disconnected backward branch",
+    nodes: [
+      { id: "S", x: 0.08, y: 0.50 },
+      { id: "a", x: 0.30, y: 0.35 },
+      { id: "b", x: 0.55, y: 0.35 },
+      { id: "T", x: 0.85, y: 0.50 },
+      { id: "d", x: 0.30, y: 0.85 },
+      { id: "x", x: 0.30, y: 0.15 },
+      { id: "y", x: 0.55, y: 0.15 },
+    ],
+    edges: [
+      { u: "S", v: "a", w: 1 },
+      { u: "a", v: "b", w: 1 },
+      { u: "b", v: "T", w: 1 },
+      { u: "S", v: "b", w: 1 },
+      { u: "S", v: "d", w: 1 },   // forward-only dead end
+      { u: "x", v: "y", w: 1 },   // orphan: not source-reachable
+      { u: "y", v: "T", w: 1 },   // orphan: not source-reachable
+    ],
+    source: "S",
+    target: "T",
+  }),
+
+  // --- Sandwich: "tight budget diamond" -----------------------------------
+  // Two routes S→a→T (length 2) and S→b→c→T (length 3). With a budget
+  // of 2 the second route is infeasible, but a budget-only backward BFS
+  // still decorates c→T and b→c. Sandwich's "dF + 1 + dB ≤ budget"
+  // check drops both.
+  tight: () => ({
+    title: "Tight-budget diamond",
+    nodes: [
+      { id: "S", x: 0.10, y: 0.50 },
+      { id: "a", x: 0.45, y: 0.25 },
+      { id: "b", x: 0.40, y: 0.75 },
+      { id: "c", x: 0.70, y: 0.75 },
+      { id: "T", x: 0.90, y: 0.50 },
+    ],
+    edges: [
+      { u: "S", v: "a", w: 1 },
+      { u: "a", v: "T", w: 1 },
+      { u: "S", v: "b", w: 1 },
+      { u: "b", v: "c", w: 1 },
+      { u: "c", v: "T", w: 1 },
+    ],
+    source: "S",
+    target: "T",
+  }),
+
+  // --- Path chain --------------------------------------------------------
+  // S -> a1 -> a2 -> ... -> aN -> T. Single path. K=2 has no second path.
+  // Vanilla Yen runs N spur Dijkstras, all dead-end at T (returns null).
+  // Bounded-pruned skips them all via impossible-spur detection.
+  chain: () => {
+    const N = 7; // a1..aN
+    const nodes = [{ id: "S", x: 0.05, y: 0.50 }];
+    for (let i = 1; i <= N; i++) nodes.push({ id: `a${i}`, x: 0.05 + 0.90 * (i / (N + 1)), y: 0.50 });
+    nodes.push({ id: "T", x: 0.95, y: 0.50 });
+    const edges = [];
+    let prev = "S";
+    for (let i = 1; i <= N; i++) {
+      const cur = `a${i}`;
+      edges.push({ u: prev, v: cur, w: 1 });
+      prev = cur;
+    }
+    edges.push({ u: prev, v: "T", w: 1 });
+    return {
+      title: "Path chain (no alternates)",
+      nodes, edges,
+      source: "S",
+      target: "T",
+    };
+  },
+};
+
+/* ============================================================
+ * Shortest-path engines on a "masked" graph
+ *
+ * We model the spur subgraph by passing in:
+ *   bannedEdges  : Set<edgeIndex>   (edges removed by Yen rule)
+ *   bannedNodes  : Set<nodeIndex>   (prefix-internal nodes, removed for simple-path)
+ *
+ * Both Dijkstra and A* return:
+ *   { path: [nodeIdx,...] | null, cost, expansions: [nodeIdx,...] }
+ * `expansions` is the order in which nodes were popped from the open set.
+ * ============================================================ */
+
+function dijkstra(g, src, dst, bannedEdges, bannedNodes) {
+  const n = g.nodes.length;
+  const dist = new Array(n).fill(Infinity);
+  const prev = new Array(n).fill(-1);
+  const prevE = new Array(n).fill(-1);
+  const settled = new Uint8Array(n);
+  const expansions = [];
+  let relaxed = 0;
+  let frontierPeak = 0;
+  if (bannedNodes && bannedNodes.has(src)) return { path: null, cost: Infinity, expansions, relaxed, frontierPeak };
+  dist[src] = 0;
+  const pq = new MinHeap((a, b) => a.d - b.d);
+  pq.push({ d: 0, v: src });
+  while (!pq.isEmpty()) {
+    if (pq.size() > frontierPeak) frontierPeak = pq.size();
+    const { d, v } = pq.pop();
+    if (settled[v]) continue;
+    settled[v] = 1;
+    expansions.push(v);
+    if (v === dst) break;
+    for (const eIdx of g.adj[v]) {
+      if (bannedEdges && bannedEdges.has(eIdx)) continue;
+      const e = g.edges[eIdx];
+      const w = e.v;
+      if (bannedNodes && bannedNodes.has(w)) continue;
+      const nd = d + e.w;
+      if (nd < dist[w]) {
+        dist[w] = nd;
+        prev[w] = v;
+        prevE[w] = eIdx;
+        pq.push({ d: nd, v: w });
+        relaxed++;
+      }
+    }
+  }
+  if (!isFinite(dist[dst])) return { path: null, cost: Infinity, expansions, relaxed, frontierPeak };
+  const path = [];
+  for (let v = dst; v !== -1; v = prev[v]) { path.push(v); if (v === src) break; }
+  path.reverse();
+  return { path, cost: dist[dst], expansions, relaxed, frontierPeak };
+}
+
+/**
+ * Reverse Dijkstra from target on the *original* graph (no bans). Used as
+ * the A* heuristic and as the lower-bound oracle for bounded-pruned Yen.
+ * Admissible: removing edges/vertices can only increase shortest-path
+ * distances, so this is always a lower bound on any masked sub-problem.
+ */
+function reverseDistances(g, target) {
+  const n = g.nodes.length;
+  const dist = new Array(n).fill(Infinity);
+  const settled = new Uint8Array(n);
+  dist[target] = 0;
+  const pq = new MinHeap((a, b) => a.d - b.d);
+  pq.push({ d: 0, v: target });
+  while (!pq.isEmpty()) {
+    const { d, v } = pq.pop();
+    if (settled[v]) continue;
+    settled[v] = 1;
+    for (const eIdx of g.radj[v]) {
+      const e = g.edges[eIdx];
+      const u = e.u;
+      const nd = d + e.w;
+      if (nd < dist[u]) { dist[u] = nd; pq.push({ d: nd, v: u }); }
+    }
+  }
+  return dist;
+}
+
+function astar(g, src, dst, h, bannedEdges, bannedNodes) {
+  const n = g.nodes.length;
+  const gScore = new Array(n).fill(Infinity);
+  const prev = new Array(n).fill(-1);
+  const closed = new Uint8Array(n);
+  const expansions = [];
+  let relaxed = 0;
+  let frontierPeak = 0;
+  if (bannedNodes && bannedNodes.has(src)) return { path: null, cost: Infinity, expansions, relaxed, frontierPeak };
+  if (!isFinite(h[src])) return { path: null, cost: Infinity, expansions, relaxed, frontierPeak };
+  gScore[src] = 0;
+  const pq = new MinHeap((a, b) => a.f - b.f);
+  pq.push({ f: h[src], g: 0, v: src });
+  while (!pq.isEmpty()) {
+    if (pq.size() > frontierPeak) frontierPeak = pq.size();
+    const { v, g: gv } = pq.pop();
+    if (closed[v]) continue;
+    closed[v] = 1;
+    expansions.push(v);
+    if (v === dst) break;
+    for (const eIdx of g.adj[v]) {
+      if (bannedEdges && bannedEdges.has(eIdx)) continue;
+      const e = g.edges[eIdx];
+      const w = e.v;
+      if (bannedNodes && bannedNodes.has(w)) continue;
+      const tentative = gv + e.w;
+      if (tentative < gScore[w]) {
+        gScore[w] = tentative;
+        prev[w] = v;
+        const f = tentative + h[w];
+        pq.push({ f, g: tentative, v: w });
+        relaxed++;
+      }
+    }
+  }
+  if (!isFinite(gScore[dst])) return { path: null, cost: Infinity, expansions, relaxed, frontierPeak };
+  const path = [];
+  for (let v = dst; v !== -1; v = prev[v]) { path.push(v); if (v === src) break; }
+  path.reverse();
+  return { path, cost: gScore[dst], expansions, relaxed, frontierPeak };
+}
+
+/* ============================================================
+ * Yen drivers — both produce an event stream.
+ *
+ * Event types:
+ *   { kind:"info",        msg }
+ *   { kind:"initial",     path, cost, expansions, engine }
+ *   { kind:"spurStart",   spurNodeIdx, spurIdxInPath, prefixCost, bannedEdges, bannedNodes, lowerBound? }
+ *   { kind:"spurExpand",  node }                  // one A-star or Dijkstra pop
+ *   { kind:"spurDone",    path, cost, prefixCost }  // path != null on success
+ *   { kind:"spurSkip",    reason }                // impossible-spur / pruned / no-path
+ *   { kind:"candidate",   path, cost }
+ *   { kind:"prune",       lowerBound, bestCandidate, msg }
+ *   { kind:"accept",      path, cost, kIndex }
+ *   { kind:"end" }
+ * ============================================================ */
+
+function pathKey(p) { return p.join(","); }
+
+function pathCost(g, path) {
+  let c = 0;
+  for (let i = 0; i + 1 < path.length; i++) {
+    const u = path[i], v = path[i + 1];
+    let best = Infinity;
+    for (const eIdx of g.adj[u]) if (g.edges[eIdx].v === v) best = Math.min(best, g.edges[eIdx].w);
+    c += best;
+  }
+  return c;
+}
+
+/** Build the mask used for the i-th spur of a previous path. */
+function maskForSpur(g, prevPath, spurIdx, alreadyAccepted) {
+  const bannedEdges = new Set();
+  const bannedNodes = new Set();
+  // Yen's rule: ban any edge whose root path (length spurIdx) matches an
+  // already-accepted path's prefix.
+  for (const accepted of alreadyAccepted) {
+    if (accepted.length <= spurIdx + 1) continue;
+    let same = true;
+    for (let j = 0; j <= spurIdx; j++) {
+      if (accepted[j] !== prevPath[j]) { same = false; break; }
+    }
+    if (!same) continue;
+    const u = accepted[spurIdx], v = accepted[spurIdx + 1];
+    for (const eIdx of g.adj[u]) if (g.edges[eIdx].v === v) bannedEdges.add(eIdx);
+  }
+  // Simple-path rule: ban every node strictly inside the prefix (so we
+  // can't loop back through it).
+  for (let j = 0; j < spurIdx; j++) bannedNodes.add(prevPath[j]);
+  return { bannedEdges, bannedNodes };
+}
+
+function runVanillaYen(g, K) {
+  const events = [];
+  const accepted = [];
+  // Initial path (Dijkstra on full graph).
+  const init = dijkstra(g, g.source, g.target, null, null);
+  if (!init.path) {
+    events.push({ kind: "info", msg: "no path from source to target." });
+    events.push({ kind: "end" });
+    return events;
+  }
+  events.push({ kind: "initial", path: init.path, cost: init.cost, expansions: init.expansions, engine: "Dijkstra" });
+  events.push({ kind: "accept", path: init.path, cost: init.cost, kIndex: 1 });
+  accepted.push(init.path);
+  const seen = new Set([pathKey(init.path)]);
+  // Candidate heap (path, cost).
+  const candidates = new MinHeap((a, b) => a.cost - b.cost);
+  let prevPath = init.path;
+  while (accepted.length < K) {
+    // Generate spurs from prevPath.
+    for (let i = 0; i < prevPath.length - 1; i++) {
+      const spurNode = prevPath[i];
+      const rootPath = prevPath.slice(0, i + 1);
+      const prefixCost = pathCost(g, rootPath);
+      const { bannedEdges, bannedNodes } = maskForSpur(g, prevPath, i, accepted);
+      events.push({
+        kind: "spurStart",
+        spurNodeIdx: spurNode, spurIdxInPath: i,
+        prefixCost,
+        bannedEdges: new Set(bannedEdges), bannedNodes: new Set(bannedNodes),
+        rootPath, prevPath,
+      });
+      const spur = dijkstra(g, spurNode, g.target, bannedEdges, bannedNodes);
+      for (const n of spur.expansions) events.push({ kind: "spurExpand", node: n });
+      if (!spur.path) {
+        events.push({ kind: "spurSkip", reason: "no path under bans" });
+        continue;
+      }
+      const fullPath = rootPath.slice(0, -1).concat(spur.path);
+      const total = prefixCost + spur.cost;
+      events.push({ kind: "spurDone", path: fullPath, cost: total, prefixCost });
+      const key = pathKey(fullPath);
+      if (!seen.has(key)) {
+        seen.add(key);
+        candidates.push({ path: fullPath, cost: total });
+        events.push({ kind: "candidate", path: fullPath, cost: total });
+      }
+    }
+    if (candidates.isEmpty()) {
+      events.push({ kind: "info", msg: `no more paths exist (found ${accepted.length}).` });
+      break;
+    }
+    const next = candidates.pop();
+    accepted.push(next.path);
+    events.push({ kind: "accept", path: next.path, cost: next.cost, kIndex: accepted.length });
+    prevPath = next.path;
+  }
+  events.push({ kind: "end" });
+  return events;
+}
+
+function runBoundedPrunedYen(g, K) {
+  const events = [];
+  const accepted = [];
+  const h = reverseDistances(g, g.target);
+  events.push({ kind: "info", msg: "precomputed reverse-Dijkstra distances (admissible heuristic / lower-bound oracle)." });
+  // Initial path via A*.
+  const init = astar(g, g.source, g.target, h, null, null);
+  if (!init.path) {
+    events.push({ kind: "info", msg: "no path from source to target." });
+    events.push({ kind: "end" });
+    return events;
+  }
+  events.push({ kind: "initial", path: init.path, cost: init.cost, expansions: init.expansions, engine: "A*" });
+  events.push({ kind: "accept", path: init.path, cost: init.cost, kIndex: 1 });
+  accepted.push(init.path);
+  const seen = new Set([pathKey(init.path)]);
+  // Spur tasks ordered by lower bound.
+  const taskQ = new MinHeap((a, b) => a.lb - b.lb);
+  // Candidate min-heap (already-materialised paths).
+  const candQ = new MinHeap((a, b) => a.cost - b.cost);
+
+  function enqueueSpursOf(prevPath) {
+    for (let i = 0; i < prevPath.length - 1; i++) {
+      const spurNode = prevPath[i];
+      const rootPath = prevPath.slice(0, i + 1);
+      const prefixCost = pathCost(g, rootPath);
+      // Admissible LB: prefixCost + h[spurNode]  (reverse dist on original graph).
+      // Bans only increase distances, so this stays admissible.
+      const lb = prefixCost + h[spurNode];
+      taskQ.push({
+        lb, prefixCost, spurNode, spurIdxInPath: i, prevPath, rootPath,
+      });
+    }
+  }
+
+  enqueueSpursOf(init.path);
+
+  while (accepted.length < K) {
+    // Best known candidate cost (Infinity if none).
+    let bestCand = candQ.isEmpty() ? Infinity : candQ.a[0].cost;
+    // Drain tasks whose lower bound already beats no candidate.
+    while (!taskQ.isEmpty() && taskQ.a[0].lb < bestCand) {
+      const t = taskQ.pop();
+      const { bannedEdges, bannedNodes } = maskForSpur(g, t.prevPath, t.spurIdxInPath, accepted);
+      // Impossible-spur skip: if every outgoing edge of the spur node is
+      // banned (Yen rule + simple-path rule), no path exists; skip without
+      // running A*.
+      let anyOut = false;
+      for (const eIdx of g.adj[t.spurNode]) {
+        if (bannedEdges.has(eIdx)) continue;
+        if (bannedNodes.has(g.edges[eIdx].v)) continue;
+        anyOut = true; break;
+      }
+      events.push({
+        kind: "spurStart",
+        spurNodeIdx: t.spurNode, spurIdxInPath: t.spurIdxInPath,
+        prefixCost: t.prefixCost,
+        bannedEdges: new Set(bannedEdges), bannedNodes: new Set(bannedNodes),
+        rootPath: t.rootPath, prevPath: t.prevPath,
+        lowerBound: t.lb,
+        willRun: anyOut,
+      });
+      if (!anyOut) {
+        events.push({ kind: "spurSkip", reason: "impossible-spur (every outgoing edge banned)" });
+        continue;
+      }
+      const spur = astar(g, t.spurNode, g.target, h, bannedEdges, bannedNodes);
+      for (const n of spur.expansions) events.push({ kind: "spurExpand", node: n });
+      if (!spur.path) {
+        events.push({ kind: "spurSkip", reason: "A* reports no path under bans" });
+        continue;
+      }
+      const fullPath = t.rootPath.slice(0, -1).concat(spur.path);
+      const total = t.prefixCost + spur.cost;
+      events.push({ kind: "spurDone", path: fullPath, cost: total, prefixCost: t.prefixCost });
+      const key = pathKey(fullPath);
+      if (!seen.has(key)) {
+        seen.add(key);
+        candQ.push({ path: fullPath, cost: total });
+        events.push({ kind: "candidate", path: fullPath, cost: total });
+        if (total < bestCand) bestCand = total;
+      }
+    }
+    // Anything still in taskQ has lb >= bestCand and can be pruned.
+    while (!taskQ.isEmpty() && taskQ.a[0].lb >= bestCand && isFinite(bestCand)) {
+      const t = taskQ.pop();
+      events.push({
+        kind: "prune",
+        lowerBound: t.lb,
+        bestCandidate: bestCand,
+        msg: `pruned spur at index ${t.spurIdxInPath} (lb=${t.lb} ≥ best candidate=${bestCand})`,
+        spurNodeIdx: t.spurNode,
+        rootPath: t.rootPath,
+      });
+    }
+    if (candQ.isEmpty()) {
+      events.push({ kind: "info", msg: `no more paths exist (found ${accepted.length}).` });
+      break;
+    }
+    const next = candQ.pop();
+    accepted.push(next.path);
+    events.push({ kind: "accept", path: next.path, cost: next.cost, kIndex: accepted.length });
+    if (accepted.length < K) enqueueSpursOf(next.path);
+  }
+  events.push({ kind: "end" });
+  return events;
+}
+
+/* ============================================================
+ * Single-shortest-path drivers (mode "single")
+ *
+ * Run one search per pane: left = standard Dijkstra, right = standard A*
+ * with reverse-Dijkstra heuristic. Events reuse the `spurExpand` kind so
+ * the existing renderer animates each pop from the open set, plus a final
+ * `accept` event carrying the final path.
+ * ============================================================ */
+
+function runStandardDijkstra(g) {
+  const events = [];
+  const r = dijkstra(g, g.source, g.target, null, null);
+  if (!r.path) {
+    events.push({ kind: "info", msg: "no path from source to target." });
+    events.push({ kind: "end" });
+    return events;
+  }
+  events.push({ kind: "info", msg: `Dijkstra: ${r.expansions.length} expansions, ${r.relaxed} edge relaxations.` });
+  for (const n of r.expansions) events.push({ kind: "spurExpand", node: n });
+  events.push({ kind: "stat", key: "relaxed", value: r.relaxed });
+  events.push({ kind: "accept", path: r.path, cost: r.cost, kIndex: 1 });
+  events.push({ kind: "end" });
+  return events;
+}
+
+function runStandardAstar(g) {
+  const events = [];
+  const h = reverseDistances(g, g.target);
+  const r = astar(g, g.source, g.target, h, null, null);
+  if (!r.path) {
+    events.push({ kind: "info", msg: "no path from source to target." });
+    events.push({ kind: "end" });
+    return events;
+  }
+  events.push({ kind: "info", msg: `A* (exact reverse-Dijkstra heuristic): ${r.expansions.length} expansions, ${r.relaxed} edge relaxations.` });
+  for (const n of r.expansions) events.push({ kind: "spurExpand", node: n });
+  events.push({ kind: "stat", key: "relaxed", value: r.relaxed });
+  events.push({ kind: "accept", path: r.path, cost: r.cost, kIndex: 1 });
+  events.push({ kind: "end" });
+  return events;
+}
+
+/* ============================================================
+ * Sandwich-prune drivers (mode "sandwich")
+ *
+ * Models AllDirectedPaths edge-decoration prune. Both panes mirror the
+ * same algorithm structure as the Java code: bootstrap backward BFS from
+ * the targets, then for every popped vertex consider its incoming edges
+ * and decide whether to retain (mark) the edge.
+ *
+ * paneA (no sandwich): retain every edge whose head is backward-reachable
+ * to a target within `budget`.
+ *
+ * paneB (sandwich): pre-compute a forward BFS from the sources. For each
+ * candidate edge u→v during the backward walk, retain it only when
+ *   (a) u is forward-reachable from a source, AND
+ *   (b) dF(u) + 1 + dB(v) ≤ budget          (when budget is bounded).
+ * Edges failing either check are dropped without being followed further.
+ *
+ * Event stream (shared by both panes):
+ *   { kind:"phase",          name }                          // "forward BFS" / "backward BFS"
+ *   { kind:"vertexFwd",      node, dist }                    // sandwich pane only
+ *   { kind:"vertexBwd",      node, dist }
+ *   { kind:"edgeConsider",   edgeIdx, u, v, distFromTarget } // about to evaluate
+ *   { kind:"edgeKeep",       edgeIdx, distFromTarget }
+ *   { kind:"edgeDrop",       edgeIdx, reason }               // sandwich pane only
+ *   { kind:"sandwichSummary", retained, dropped, fwdMarked, bwdMarked }
+ *   { kind:"end" }
+ * ============================================================ */
+
+function runNoSandwich(g, budget) {
+  const events = [];
+  const n = g.nodes.length;
+  const dB = new Array(n).fill(-1);
+  const kept = new Set();
+  events.push({ kind: "phase", name: "backward BFS from target" });
+  dB[g.target] = 0;
+  events.push({ kind: "vertexBwd", node: g.target, dist: 0 });
+  const q = [g.target];
+  while (q.length) {
+    const v = q.shift();
+    const childDistance = dB[v] + 1;
+    if (budget != null && childDistance > budget) continue;
+    for (const eIdx of g.radj[v]) {
+      const e = g.edges[eIdx];
+      events.push({ kind: "edgeConsider", edgeIdx: eIdx, u: e.u, v: e.v, distFromTarget: childDistance });
+      // No sandwich: always keep edges that fit within the backward budget.
+      kept.add(eIdx);
+      events.push({ kind: "edgeKeep", edgeIdx: eIdx, distFromTarget: childDistance });
+      if (dB[e.u] === -1) {
+        dB[e.u] = childDistance;
+        events.push({ kind: "vertexBwd", node: e.u, dist: childDistance });
+        q.push(e.u);
+      }
+    }
+  }
+  let bwdMarked = 0;
+  for (let i = 0; i < n; i++) if (dB[i] !== -1) bwdMarked++;
+  events.push({ kind: "sandwichSummary", retained: kept.size, dropped: 0, fwdMarked: 0, bwdMarked });
+  events.push({ kind: "end" });
+  return events;
+}
+
+function runWithSandwich(g, budget) {
+  const events = [];
+  const n = g.nodes.length;
+  // ---- Phase 1: forward BFS from source. ----
+  events.push({ kind: "phase", name: "forward BFS from source" });
+  const dF = new Array(n).fill(-1);
+  dF[g.source] = 0;
+  events.push({ kind: "vertexFwd", node: g.source, dist: 0 });
+  const qF = [g.source];
+  while (qF.length) {
+    const u = qF.shift();
+    if (budget != null && dF[u] >= budget) continue;
+    for (const eIdx of g.adj[u]) {
+      const e = g.edges[eIdx];
+      if (dF[e.v] === -1) {
+        dF[e.v] = dF[u] + 1;
+        events.push({ kind: "vertexFwd", node: e.v, dist: dF[e.v] });
+        qF.push(e.v);
+      }
+    }
+  }
+  // ---- Phase 2: backward BFS with sandwich condition. ----
+  events.push({ kind: "phase", name: "backward BFS with sandwich check" });
+  const dB = new Array(n).fill(-1);
+  const kept = new Set();
+  const dropped = new Set();
+  if (dF[g.target] === -1) {
+    // Target not even reachable forward — nothing to keep.
+    events.push({ kind: "sandwichSummary", retained: 0, dropped: 0, fwdMarked: dF.filter(x => x !== -1).length, bwdMarked: 0 });
+    events.push({ kind: "end" });
+    return events;
+  }
+  dB[g.target] = 0;
+  events.push({ kind: "vertexBwd", node: g.target, dist: 0 });
+  const qB = [g.target];
+  while (qB.length) {
+    const v = qB.shift();
+    const childDistance = dB[v] + 1;
+    if (budget != null && childDistance > budget) continue;
+    for (const eIdx of g.radj[v]) {
+      const e = g.edges[eIdx];
+      events.push({ kind: "edgeConsider", edgeIdx: eIdx, u: e.u, v: e.v, distFromTarget: childDistance });
+      // Sandwich check 1: u forward-reachable from source?
+      if (dF[e.u] === -1) {
+        dropped.add(eIdx);
+        events.push({ kind: "edgeDrop", edgeIdx: eIdx, reason: "u not forward-reachable from source" });
+        continue;
+      }
+      // Sandwich check 2: dF(u) + 1 + dB(v) ≤ budget?
+      if (budget != null && dF[e.u] + childDistance > budget) {
+        dropped.add(eIdx);
+        events.push({ kind: "edgeDrop", edgeIdx: eIdx, reason: `dF(u)=${dF[e.u]} + 1 + dB(v)=${dB[v]} > budget ${budget}` });
+        continue;
+      }
+      kept.add(eIdx);
+      events.push({ kind: "edgeKeep", edgeIdx: eIdx, distFromTarget: childDistance });
+      if (dB[e.u] === -1) {
+        dB[e.u] = childDistance;
+        events.push({ kind: "vertexBwd", node: e.u, dist: childDistance });
+        qB.push(e.u);
+      }
+    }
+  }
+  const fwdMarked = dF.filter(x => x !== -1).length;
+  const bwdMarked = dB.filter(x => x !== -1).length;
+  events.push({ kind: "sandwichSummary", retained: kept.size, dropped: dropped.size, fwdMarked, bwdMarked });
+  events.push({ kind: "end" });
+  return events;
+}
+
+/* ============================================================
+ * Per-event explanations. Each entry returns a short HTML string
+ * describing why the algorithm just did what it did. Mode-aware:
+ * the same event kind reads differently inside Yen vs a stand-alone
+ * shortest-path search.
+ * ============================================================ */
+
+const EVENT_INFO = {
+  yen: {
+    info: (ev) => `<b>info.</b> ${escapeHtml(ev.msg)}`,
+    initial: (ev, p) => `<b>Initial path (${escapeHtml(ev.engine)}).</b> A single search from source to target — this is path #1 in the K-shortest enumeration and the seed all spur generation hangs off. Cost ${ev.cost}, ${ev.expansions.length} node expansions.`,
+    spurStart: (ev, p) => {
+      const lbStr = ev.lowerBound != null ? ` This task's lower bound is <code>prefixCost (${ev.prefixCost}) + h[spurNode] = ${ev.lowerBound}</code>; the bounded driver only ran it because no cheaper candidate is known yet.` : "";
+      return `<b>Spur task starts at <code>${escapeHtml(p.nodeLabel(ev.spurNodeIdx))}</code>.</b> The prefix (blue path) is fixed; the red edges are banned so we can't re-create an already-accepted path with this same prefix. Internal prefix nodes are also banned (simple-path rule). A sub-search will now find the cheapest path from the spur node to the target on this masked graph.${lbStr}`;
+    },
+    spurExpand: (ev, p) => `<b>Sub-search expansion.</b> The Dijkstra/A* running for this spur popped <code>${escapeHtml(p.nodeLabel(ev.node))}</code> from its open set — we now know the cheapest way to reach it under the current bans.`,
+    spurDone: (ev) => `<b>Sub-search done.</b> Reached the target. Concatenating the prefix with this spur path gives a full candidate of cost ${ev.cost}, which goes onto the candidate heap.`,
+    spurSkip: (ev) => `<b>Spur skipped.</b> ${escapeHtml(ev.reason)}. No A*/Dijkstra call is made, no node is expanded.`,
+    candidate: (ev) => `<b>New candidate.</b> A fully-built path of cost ${ev.cost} (length ${ev.path.length - 1}) has been added to the candidate min-heap. It competes with every other candidate to be the next K-shortest path.`,
+    prune: (ev) => `<b>Task pruned by lower bound.</b> The cheapest task left in the queue has lb=${ev.lowerBound}, but a candidate of cost ${ev.bestCandidate} is already known. No spur from here could ever beat that — discard without running.`,
+    accept: (ev) => `<b>Accept path #${ev.kIndex}.</b> The cheapest candidate has been promoted to the next K-shortest path. If we still need more, we'll generate spur tasks off <em>this</em> path next.`,
+    stat: () => "",
+    // Leave the previous event explanation (typically the last "accept")
+    // visible; the status tag already says "done".
+    end: () => "",
+  },
+  single: {
+    info: (ev) => `<b>info.</b> ${escapeHtml(ev.msg)}`,
+    initial: () => "",
+    spurStart: () => "",
+    spurDone: () => "",
+    spurSkip: () => "",
+    candidate: () => "",
+    prune: () => "",
+    spurExpand: (ev, p) => {
+      const isAstar = p.side === "B";
+      const key = isAstar ? "<code>f(v) = g(v) + h(v)</code>" : "<code>g(v)</code>";
+      const intuition = isAstar
+        ? "A*'s heuristic biases the queue toward nodes that look closer to the target, so expansions head straight at it."
+        : "Dijkstra orders by cost-from-source only, so expansions fan out as a wave from the source.";
+      return `<b>Expand <code>${escapeHtml(p.nodeLabel(ev.node))}</code>.</b> Popped the lowest-priority entry in the open set (priority key: ${key}). Its shortest cost from the source is now final; the algorithm relaxes each outgoing edge, possibly pushing neighbours into the queue. ${intuition}`;
+    },
+    accept: (ev) => `<b>Target reached.</b> The shortest s→t path has cost ${ev.cost} and uses ${ev.path.length - 1} edges. The blue path you see was reconstructed by following predecessor pointers backwards from the target. The green tint shows every node the search had to look at to be sure this path is optimal.`,
+    stat: () => "",
+    end: () => "",
+  },
+  sandwich: {
+    info: (ev) => `<b>info.</b> ${escapeHtml(ev.msg)}`,
+    phase: (ev) => `<b>Phase: ${escapeHtml(ev.name)}.</b> ${ev.name.startsWith("forward") ? "Walk outward from the source via outgoing edges. We just need a vertex-level map <code>dF</code> — no edges retained in this phase." : "Pop the next vertex from the backward queue and inspect each of its <em>incoming</em> edges; that's where the prune decisions happen."}`,
+    vertexFwd: (ev, p) => `<b>Forward BFS marks <code>${escapeHtml(p.nodeLabel(ev.node))}</code></b> at <code>dF=${ev.dist}</code>. A cyan dashed halo appears around it. Vertices not marked by this BFS will be treated as "unreachable from source" and any incoming edges to them get dropped.`,
+    vertexBwd: (ev, p) => `<b>Backward BFS pops <code>${escapeHtml(p.nodeLabel(ev.node))}</code></b> at <code>dB=${ev.dist}</code>. Now we'll look at every <em>incoming</em> edge <code>u → ${escapeHtml(p.nodeLabel(ev.node))}</code> and decide whether to retain it.`,
+    edgeConsider: (ev, p) => `<b>Considering edge <code>${escapeHtml(p.nodeLabel(ev.u))} → ${escapeHtml(p.nodeLabel(ev.v))}</code></b> at distance ${ev.distFromTarget} from the target. ${p.side === "B" ? "The sandwich check is about to gate this edge." : "Baseline always retains an edge once we get this far."}`,
+    edgeKeep: (ev) => `<b>Edge retained.</b> Stored in the decoration map with <code>dB=${ev.distFromTarget}</code>. The path-enumeration step will be allowed to traverse this edge.`,
+    edgeDrop: (ev) => `<b>Edge dropped by sandwich.</b> Reason: ${escapeHtml(ev.reason)}. Even though the backward BFS reached this edge, no source → target walk of length ≤ budget can pass through it, so we don't pollute the decoration map with it.`,
+    sandwichSummary: (ev, p) => p.side === "A"
+      ? `<b>Baseline done.</b> ${ev.retained} edges retained, ${ev.bwdMarked} vertices backward-marked. No sandwich check ran, so nothing was dropped at gate-time.`
+      : `<b>Sandwich done.</b> ${ev.retained} edges retained out of ${ev.retained + ev.dropped} considered; ${ev.dropped} dropped at the sandwich gate. ${ev.fwdMarked} vertices were forward-reachable from the source.`,
+    stat: () => "",
+    end: () => "",
+  },
+};
+
+/* ============================================================
+ * Per-mode pane schema (H2 title, badge, four stat-slot labels)
+ * ============================================================ */
+
+const SCHEMAS = {
+  yen: {
+    A: {
+      h2: "Vanilla Yen + Dijkstra",
+      badge: "baseline (YenKShortestPath)",
+      labels: ["spur tasks", "node expansions", "candidates", "accepted paths"],
+    },
+    B: {
+      h2: "Bounded-pruned Yen + A*",
+      badge: "BoundedPrunedYenKShortestPath",
+      labels: ["spur tasks ran", "node expansions", "tasks pruned/skipped", "accepted paths"],
+    },
+  },
+  single: {
+    A: {
+      h2: "Standard Dijkstra",
+      badge: "single shortest s → t path",
+      labels: ["nodes expanded", "edges relaxed", "path length", "path cost"],
+    },
+    B: {
+      h2: "Standard A*",
+      badge: "with reverse-Dijkstra heuristic (admissible)",
+      labels: ["nodes expanded", "edges relaxed", "path length", "path cost"],
+    },
+  },
+  sandwich: {
+    A: {
+      h2: "AllDirectedPaths — backward BFS only",
+      badge: "baseline edge decoration",
+      labels: ["edges retained", "edges considered", "vertices backward-marked", "edges dropped"],
+    },
+    B: {
+      h2: "AllDirectedPaths — sandwich-pruned",
+      badge: "forward BFS + backward BFS gate",
+      labels: ["edges retained", "edges considered", "vertices forward-marked", "edges dropped"],
+    },
+  },
+};
+
+/* ============================================================
+ * Renderer + playback
+ * ============================================================ */
+
+class PaneState {
+  constructor(canvas, statusEl, slotEls, labelEls, h2El, side, eventInfoEl) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.statusEl = statusEl;
+    this.slotEls = slotEls;     // [v0, v1, v2, v3]
+    this.labelEls = labelEls;   // [k0, k1, k2, k3]
+    this.h2El = h2El;
+    this.side = side;           // 'A' or 'B'
+    this.eventInfoEl = eventInfoEl;
+    this.mode = "yen";
+    this.g = null;
+    this.reset();
+    this.fitDpi();
+    window.addEventListener("resize", () => { this.fitDpi(); this.draw(); });
+  }
+  setMode(mode) {
+    this.mode = mode;
+    const schema = SCHEMAS[mode][this.side];
+    this.h2El.innerHTML = `${escapeHtml(schema.h2)} <span class="badge">${escapeHtml(schema.badge)}</span>`;
+    for (let i = 0; i < 4; i++) this.labelEls[i].textContent = schema.labels[i] || "";
+    this.updateSlots();
+  }
+  setSlot(idx, val) { this.slotEls[idx].textContent = String(val); }
+  updateSlots() {
+    if (this.mode === "yen") {
+      this.setSlot(0, this.spurCount);
+      this.setSlot(1, this.expansionCount);
+      this.setSlot(2, this.side === "A" ? this.candCount : this.prunedCount);
+      this.setSlot(3, this.acceptCount);
+    } else if (this.mode === "single") {
+      this.setSlot(0, this.expansionCount);
+      this.setSlot(1, this.relaxedCount);
+      this.setSlot(2, this.pathLen);
+      this.setSlot(3, isFinite(this.pathCost) ? this.pathCost : "–");
+    } else {  // sandwich
+      this.setSlot(0, this.edgesKeptCount);
+      this.setSlot(1, this.edgesProcessedCount);
+      this.setSlot(2, this.side === "A" ? this.exploredNodes.size : this.fwdMarkedCount);
+      this.setSlot(3, this.edgesDroppedCount);
+    }
+  }
+  fitDpi() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = this.canvas.getBoundingClientRect();
+    this.canvas.width = Math.floor(rect.width * dpr);
+    this.canvas.height = Math.floor(rect.height * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.cw = rect.width; this.ch = rect.height;
+  }
+  reset() {
+    this.bannedEdges = new Set();
+    this.bannedNodes = new Set();
+    this.exploredNodes = new Set();
+    this.forwardNodes = new Set();
+    this.keptEdges = new Set();
+    this.droppedEdges = new Set();
+    this.spurNode = -1;
+    this.activePath = null;
+    this.acceptedPaths = [];
+    this.lastEventTag = "Ready.";
+    this.spurCount = 0;
+    this.expansionCount = 0;
+    this.candCount = 0;
+    this.acceptCount = 0;
+    this.prunedCount = 0;
+    this.relaxedCount = 0;
+    this.pathLen = 0;
+    this.pathCost = 0;
+    // Sandwich-mode counters.
+    this.edgesKeptCount = 0;
+    this.edgesProcessedCount = 0;
+    this.fwdMarkedCount = 0;
+    this.edgesDroppedCount = 0;
+    this.activeRootPath = null;
+    this.flashEdges = null;
+    this.flashColor = null;
+    this.flashUntil = 0;
+    this.updateSlots();
+    // Bug-fix: clear stale status badge/log so reset visibly resets the
+    // pane instead of keeping the last "expand X" tag visible.
+    if (this.statusEl) this.statusEl.innerHTML = "Ready.";
+  }
+  applyEvent(ev) {
+    switch (ev.kind) {
+      case "info":
+        this.lastEventTag = `<span class="tag tag-info">info</span>${escapeHtml(ev.msg)}`;
+        break;
+      case "initial":
+        this.activePath = ev.path.slice();
+        this.acceptedPaths = [];
+        this.spurNode = -1;
+        this.exploredNodes = new Set(ev.expansions);
+        this.expansionCount += ev.expansions.length;
+        this.lastEventTag = `<span class="tag tag-spur">${ev.engine}</span>initial path cost ${ev.cost} — ${ev.expansions.length} node expansions`;
+        break;
+      case "spurStart":
+        if (ev.willRun !== false) this.spurCount += 1;
+        this.bannedEdges = ev.bannedEdges;
+        this.bannedNodes = ev.bannedNodes;
+        this.spurNode = ev.spurNodeIdx;
+        this.activeRootPath = ev.rootPath;
+        this.activePath = ev.rootPath.slice();
+        this.exploredNodes = new Set();
+        const lbStr = ev.lowerBound != null ? ` lb=${ev.lowerBound}` : "";
+        this.lastEventTag = `<span class="tag tag-spur">spur</span>at ${this.nodeLabel(ev.spurNodeIdx)} — prefix cost ${ev.prefixCost}${lbStr}, ${ev.bannedEdges.size} edge ban(s)`;
+        break;
+      case "spurExpand":
+        this.exploredNodes.add(ev.node);
+        this.expansionCount += 1;
+        this.lastEventTag = `<span class="tag tag-expand">expand</span>${this.nodeLabel(ev.node)}`;
+        break;
+      case "spurDone":
+        this.activePath = ev.path.slice();
+        this.lastEventTag = `<span class="tag tag-cand">spur done</span>full path cost ${ev.cost}`;
+        break;
+      case "spurSkip":
+        this.lastEventTag = `<span class="tag tag-skip">skip</span>${escapeHtml(ev.reason)}`;
+        if (ev.reason && ev.reason.startsWith("impossible")) this.prunedCount += 1;
+        break;
+      case "candidate":
+        this.candCount += 1;
+        this.lastEventTag = `<span class="tag tag-cand">candidate</span>cost ${ev.cost} (path length ${ev.path.length - 1})`;
+        break;
+      case "prune":
+        this.prunedCount += 1;
+        this.lastEventTag = `<span class="tag tag-prune">prune</span>${escapeHtml(ev.msg)}`;
+        break;
+      case "accept":
+        this.acceptCount += 1;
+        this.acceptedPaths.push({ path: ev.path.slice(), cost: ev.cost });
+        this.activePath = ev.path.slice();
+        this.pathLen = ev.path.length - 1;
+        this.pathCost = ev.cost;
+        this.spurNode = -1;
+        // In single-shortest mode we keep the explored set visible alongside
+        // the final path so the user can compare expansion frontiers.
+        if (this.mode !== "single") this.exploredNodes = new Set();
+        this.bannedEdges = new Set();
+        this.bannedNodes = new Set();
+        this.flashEdges = pathEdges(this.g, ev.path);
+        this.flashColor = "rgba(142,224,142,0.85)";
+        this.flashUntil = performance.now() + 600;
+        setTimeout(() => { this.flashEdges = null; this.draw(); }, 650);
+        this.lastEventTag = this.mode === "single"
+          ? `<span class="tag tag-accept">final</span>path cost ${ev.cost}, length ${ev.path.length - 1}`
+          : `<span class="tag tag-accept">accept #${ev.kIndex}</span>cost ${ev.cost}`;
+        break;
+      case "stat":
+        if (ev.key === "relaxed") this.relaxedCount = ev.value;
+        else if (ev.key === "cost") this.pathCost = ev.value;
+        else if (ev.key === "len") this.pathLen = ev.value;
+        break;
+      case "phase":
+        this.lastEventTag = `<span class="tag tag-info">phase</span>${escapeHtml(ev.name)}`;
+        break;
+      case "vertexFwd":
+        this.forwardNodes.add(ev.node);
+        this.fwdMarkedCount = this.forwardNodes.size;
+        this.lastEventTag = `<span class="tag tag-info">fwd BFS</span>marked <code>${this.nodeLabel(ev.node)}</code> at dF=${ev.dist}`;
+        break;
+      case "vertexBwd":
+        this.exploredNodes.add(ev.node);
+        this.lastEventTag = `<span class="tag tag-info">bwd BFS</span>marked <code>${this.nodeLabel(ev.node)}</code> at dB=${ev.dist}`;
+        break;
+      case "edgeConsider":
+        this.edgesProcessedCount += 1;
+        this.activeEdge = ev.edgeIdx;
+        this.lastEventTag = `<span class="tag tag-spur">consider</span>edge <code>${this.nodeLabel(ev.u)} → ${this.nodeLabel(ev.v)}</code>`;
+        break;
+      case "edgeKeep":
+        this.keptEdges.add(ev.edgeIdx);
+        this.edgesKeptCount = this.keptEdges.size;
+        this.activeEdge = -1;
+        this.lastEventTag = `<span class="tag tag-cand">retain</span>edge kept (dB=${ev.distFromTarget})`;
+        break;
+      case "edgeDrop":
+        this.droppedEdges.add(ev.edgeIdx);
+        this.edgesDroppedCount = this.droppedEdges.size;
+        this.activeEdge = -1;
+        this.lastEventTag = `<span class="tag tag-prune">drop</span>${escapeHtml(ev.reason)}`;
+        break;
+      case "sandwichSummary":
+        this.edgesKeptCount = ev.retained;
+        this.edgesDroppedCount = ev.dropped;
+        this.fwdMarkedCount = ev.fwdMarked;
+        this.lastEventTag = `<span class="tag tag-accept">summary</span>${ev.retained} retained, ${ev.dropped} dropped`;
+        break;
+      case "end":
+        this.spurNode = -1;
+        // Keep the explored set and final state visible in single + sandwich
+        // modes; only clear it in yen mode where it was per-spur scratch.
+        if (this.mode === "yen") {
+          this.activePath = null;
+          this.exploredNodes = new Set();
+        }
+        this.bannedEdges = new Set();
+        this.bannedNodes = new Set();
+        this.lastEventTag = `<span class="tag tag-info">done</span>finished.`;
+        break;
+    }
+    this.updateSlots();
+    this.statusEl.innerHTML = this.lastEventTag;
+    if (this.eventInfoEl) {
+      const tbl = EVENT_INFO[this.mode] || EVENT_INFO.yen;
+      const fn = tbl[ev.kind];
+      const html = fn ? fn(ev, this) : "";
+      if (html) this.eventInfoEl.innerHTML = html;
+    }
+  }
+  nodeLabel(i) { return this.g.nodes[i].id; }
+  draw() {
+    const { ctx, g, cw, ch } = this;
+    ctx.clearRect(0, 0, cw, ch);
+    if (!g) return;
+    // Project node positions to canvas.
+    const px = (n) => 24 + n.x * (cw - 48);
+    const py = (n) => 24 + n.y * (ch - 48);
+    // Edges first.
+    for (let eIdx = 0; eIdx < g.edges.length; eIdx++) {
+      const e = g.edges[eIdx];
+      const u = g.nodes[e.u], v = g.nodes[e.v];
+      const x1 = px(u), y1 = py(u), x2 = px(v), y2 = py(v);
+      const banned = this.bannedEdges.has(eIdx);
+      let color = banned ? getCss("--edge-banned") : getCss("--edge");
+      let width = 1.4;
+      // Sandwich-mode edge classification.
+      if (this.mode === "sandwich") {
+        if (this.droppedEdges.has(eIdx)) { color = getCss("--edge-banned"); width = 1.4; }
+        if (this.keptEdges.has(eIdx))    { color = getCss("--edge-final"); width = 3; }
+        if (this.activeEdge === eIdx)    { color = getCss("--node-active"); width = 4; }
+      }
+      // Draw the active path edges thick blue (Yen / single modes).
+      if (this.activePath && pathContainsEdge(this.activePath, e.u, e.v)) {
+        color = getCss("--edge-active"); width = 3;
+      }
+      // Flash on accept.
+      const now = performance.now();
+      if (this.flashEdges && now < this.flashUntil) {
+        const k = (e.u << 16) | e.v;
+        if (this.flashEdges.has(k)) { color = this.flashColor; width = 4; }
+      } else if (this.flashEdges && now >= this.flashUntil) {
+        this.flashEdges = null;
+      }
+      drawArrow(ctx, x1, y1, x2, y2, 14, color, width);
+      // Edge weight label.
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      ctx.font = "11px ui-sans-serif, sans-serif";
+      ctx.fillStyle = banned ? "#f0a4a4" : "#9aa3b8";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      // Offset label perpendicular to edge so reverse-direction labels
+      // don't fully overlap.
+      const dx = x2 - x1, dy = y2 - y1;
+      const L = Math.hypot(dx, dy) || 1;
+      const ox = -dy / L * 8, oy = dx / L * 8;
+      ctx.fillText(String(e.w), mx + ox, my + oy);
+    }
+    // Nodes on top.
+    for (let i = 0; i < g.nodes.length; i++) {
+      const n = g.nodes[i];
+      const x = px(n), y = py(n);
+      let fill = getCss("--node-fill");
+      let stroke = getCss("--node-stroke");
+      let lightFill = false;  // true => fill is a bright highlight, use dark text
+      if (this.exploredNodes.has(i)) { fill = getCss("--node-explored"); lightFill = true; }
+      if (this.bannedNodes.has(i)) { fill = "#3a2a2a"; stroke = "#80505a"; lightFill = false; }
+      if (i === g.source) { fill = getCss("--node-source"); stroke = "#bcd9ff"; lightFill = true; }
+      if (i === g.target) { fill = getCss("--node-target"); stroke = "#e2c4ff"; lightFill = true; }
+      if (i === this.spurNode) { fill = getCss("--node-active"); stroke = "#fff1bf"; lightFill = true; }
+      // Sandwich-mode forward halo: a cyan ring around nodes the forward
+      // BFS has reached, drawn before the node fill.
+      if (this.mode === "sandwich" && this.forwardNodes.has(i)) {
+        ctx.beginPath();
+        ctx.arc(x, y, 18, 0, Math.PI * 2);
+        ctx.strokeStyle = "#6cb3ff";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.beginPath();
+      ctx.arc(x, y, 14, 0, Math.PI * 2);
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 2;
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = lightFill ? "#0a0e16" : "#e6e8ef";
+      ctx.font = "11px ui-monospace, monospace";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(n.id, x, y);
+    }
+  }
+}
+
+function pathEdges(g, path) {
+  const set = new Set();
+  for (let i = 0; i + 1 < path.length; i++) {
+    const u = path[i], v = path[i + 1];
+    set.add((u << 16) | v);
+  }
+  return set;
+}
+
+function pathContainsEdge(path, u, v) {
+  for (let i = 0; i + 1 < path.length; i++) {
+    if (path[i] === u && path[i + 1] === v) return true;
+  }
+  return false;
+}
+
+function drawArrow(ctx, x1, y1, x2, y2, nodeR, color, width) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const L = Math.hypot(dx, dy) || 1;
+  const ux = dx / L, uy = dy / L;
+  // Bow arrows so opposite directions don't overlap.
+  const bx = -uy * 5, by = ux * 5;
+  const sx = x1 + ux * nodeR + bx, sy = y1 + uy * nodeR + by;
+  const ex = x2 - ux * nodeR + bx, ey = y2 - uy * nodeR + by;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy); ctx.lineTo(ex, ey);
+  ctx.stroke();
+  // Arrowhead.
+  const ah = 7;
+  const ang = Math.atan2(ey - sy, ex - sx);
+  ctx.beginPath();
+  ctx.moveTo(ex, ey);
+  ctx.lineTo(ex - ah * Math.cos(ang - 0.4), ey - ah * Math.sin(ang - 0.4));
+  ctx.lineTo(ex - ah * Math.cos(ang + 0.4), ey - ah * Math.sin(ang + 0.4));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function getCss(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ============================================================
+ * Wire up the page
+ * ============================================================ */
+
+const ui = {
+  mode: document.getElementById("mode"),
+  example: document.getElementById("example"),
+  k: document.getElementById("k"),
+  kLabel: document.querySelector("label[for=k]"),
+  budget: document.getElementById("budget"),
+  budgetLabel: document.getElementById("budgetLabel"),
+  run: document.getElementById("run"),
+  play: document.getElementById("play"),
+  pause: document.getElementById("pause"),
+  step: document.getElementById("step"),
+  reset: document.getElementById("reset"),
+  speed: document.getElementById("speed"),
+  speedLbl: document.getElementById("speedLbl"),
+  progress: document.getElementById("progress"),
+  pathsA: document.getElementById("A_paths"),
+  pathsB: document.getElementById("B_paths"),
+  statusA: document.getElementById("statusA"),
+  statusB: document.getElementById("statusB"),
+};
+
+function slotEls(side) {
+  return [0, 1, 2, 3].map(i => document.getElementById(`${side}_slot${i}`));
+}
+function labelEls(side) {
+  return [0, 1, 2, 3].map(i => document.getElementById(`${side}_lbl${i}`));
+}
+
+const paneA = new PaneState(
+  document.getElementById("canvasA"),
+  document.getElementById("statusA"),
+  slotEls("A"), labelEls("A"),
+  document.getElementById("A_h2"),
+  "A",
+  document.getElementById("eventInfoA"),
+);
+const paneB = new PaneState(
+  document.getElementById("canvasB"),
+  document.getElementById("statusB"),
+  slotEls("B"), labelEls("B"),
+  document.getElementById("B_h2"),
+  "B",
+  document.getElementById("eventInfoB"),
+);
+
+const narrativeYen = document.getElementById("narrativeYen");
+const narrativeSingle = document.getElementById("narrativeSingle");
+const narrativeSandwich = document.getElementById("narrativeSandwich");
+function showNarrative(mode) {
+  narrativeYen.hidden = (mode !== "yen");
+  narrativeSingle.hidden = (mode !== "single");
+  if (narrativeSandwich) narrativeSandwich.hidden = (mode !== "sandwich");
+}
+
+let state = {
+  g: null,
+  eventsA: [], eventsB: [],
+  iA: 0, iB: 0,
+  totalSteps: 0,
+  step: 0,
+  timer: null,
+  playing: false,
+};
+
+// Lists of example keys available per mode. Sandwich mode has its own
+// dedicated graphs that highlight forward-disconnected gardens and
+// budget-tight diamonds; the Yen and single modes reuse the original set.
+const EXAMPLES_PER_MODE = {
+  yen: [
+    { key: "grid", label: "Grid 6×5 (A* heuristic shines)" },
+    { key: "chain", label: "Path chain (impossible-spur skip)" },
+    { key: "wiki", label: "Yen Wikipedia 6-node graph" },
+  ],
+  single: [
+    { key: "grid", label: "Grid 6×5 (A* heuristic shines)" },
+    { key: "chain", label: "Path chain (single path)" },
+    { key: "wiki", label: "Yen Wikipedia 6-node graph" },
+  ],
+  sandwich: [
+    { key: "garden", label: "Garden — orphan backward branch" },
+    { key: "tight", label: "Tight-budget diamond" },
+  ],
+};
+
+function populateExamples(mode) {
+  const prev = ui.example.value;
+  const list = EXAMPLES_PER_MODE[mode] || EXAMPLES_PER_MODE.yen;
+  ui.example.innerHTML = "";
+  for (const item of list) {
+    const opt = document.createElement("option");
+    opt.value = item.key; opt.textContent = item.label;
+    ui.example.appendChild(opt);
+  }
+  // Preserve selection if still valid, otherwise pick the first option.
+  if (list.some(e => e.key === prev)) ui.example.value = prev;
+}
+
+function loadAndRun() {
+  const mode = ui.mode.value;
+  populateExamples(mode);
+  const exKey = ui.example.value;
+  const K = parseInt(ui.k.value, 10);
+  const budget = parseInt(ui.budget.value, 10);
+  const spec = EXAMPLES[exKey]();
+  const g = buildGraph(spec);
+  state.g = g;
+  paneA.g = g; paneB.g = g;
+  paneA.setMode(mode); paneB.setMode(mode);
+  paneA.reset(); paneB.reset();
+  showNarrative(mode);
+  const startMsg =
+    mode === "yen" ? "Press <b>Play</b> — Yen's algorithm will iterate: find a path, generate spur tasks off it, pick the cheapest candidate, repeat."
+    : mode === "single" ? "Press <b>Play</b> — the algorithm will repeatedly <em>expand</em> the cheapest node in its open set until the target is settled."
+    : "Press <b>Play</b> — the left pane runs the original backward BFS; the right pane gates each edge with a forward-BFS sandwich check.";
+  document.getElementById("eventInfoA").innerHTML = startMsg;
+  document.getElementById("eventInfoB").innerHTML = startMsg;
+  // Show/hide K and budget pickers per mode.
+  const showK = mode === "yen";
+  const showBudget = mode === "sandwich";
+  if (ui.k) ui.k.style.display = showK ? "" : "none";
+  if (ui.kLabel) ui.kLabel.style.display = showK ? "" : "none";
+  if (ui.budget) ui.budget.style.display = showBudget ? "" : "none";
+  if (ui.budgetLabel) ui.budgetLabel.style.display = showBudget ? "" : "none";
+  if (mode === "yen") {
+    state.eventsA = runVanillaYen(g, K);
+    state.eventsB = runBoundedPrunedYen(g, K);
+  } else if (mode === "single") {
+    state.eventsA = runStandardDijkstra(g);
+    state.eventsB = runStandardAstar(g);
+  } else {
+    state.eventsA = runNoSandwich(g, budget);
+    state.eventsB = runWithSandwich(g, budget);
+  }
+  state.iA = 0; state.iB = 0;
+  state.totalSteps = Math.max(state.eventsA.length, state.eventsB.length);
+  state.step = 0;
+  ui.pathsA.innerHTML = "";
+  ui.pathsB.innerHTML = "";
+  paneA.draw(); paneB.draw();
+  updateProgress();
+}
+
+function updateProgress() {
+  ui.progress.textContent = `step ${state.step} / ${state.totalSteps}`;
+}
+
+function pushPathRow(listEl, path, cost, g) {
+  const li = document.createElement("li");
+  li.textContent = `${path.map(i => g.nodes[i].id).join(" → ")}  (cost ${cost})`;
+  listEl.appendChild(li);
+}
+
+function applyOne() {
+  let progressed = false;
+  if (state.iA < state.eventsA.length) {
+    const ev = state.eventsA[state.iA++];
+    paneA.applyEvent(ev);
+    if (ev.kind === "accept") pushPathRow(ui.pathsA, ev.path, ev.cost, state.g);
+    progressed = true;
+  }
+  if (state.iB < state.eventsB.length) {
+    const ev = state.eventsB[state.iB++];
+    paneB.applyEvent(ev);
+    if (ev.kind === "accept") pushPathRow(ui.pathsB, ev.path, ev.cost, state.g);
+    progressed = true;
+  }
+  if (progressed) state.step += 1;
+  paneA.draw(); paneB.draw();
+  updateProgress();
+  return progressed;
+}
+
+function play() {
+  if (state.playing) return;
+  state.playing = true;
+  ui.play.disabled = true; ui.pause.disabled = false;
+  const tick = () => {
+    if (!state.playing) return;
+    const more = applyOne();
+    if (!more) { pause(); return; }
+    state.timer = setTimeout(tick, parseInt(ui.speed.value, 10));
+  };
+  tick();
+}
+
+function pause() {
+  state.playing = false;
+  ui.play.disabled = false; ui.pause.disabled = true;
+  if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+}
+
+ui.run.addEventListener("click", () => { pause(); loadAndRun(); play(); });
+ui.play.addEventListener("click", play);
+ui.pause.addEventListener("click", pause);
+ui.step.addEventListener("click", () => { pause(); applyOne(); });
+ui.reset.addEventListener("click", () => { pause(); loadAndRun(); });
+ui.speed.addEventListener("input", () => { ui.speedLbl.textContent = ui.speed.value + " ms/step"; });
+ui.mode.addEventListener("change", () => { pause(); loadAndRun(); });
+ui.budget.addEventListener("change", () => { pause(); loadAndRun(); });
+ui.example.addEventListener("change", () => { pause(); loadAndRun(); });
+ui.k.addEventListener("change", () => { pause(); loadAndRun(); });
+
+loadAndRun();
+
+</script>
+
+</body>
+</html>
