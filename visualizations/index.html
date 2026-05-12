@@ -1024,6 +1024,35 @@ function runStandardAstar(g) {
  *   { kind:"end" }
  * ============================================================ */
 
+/**
+ * Enumerate every simple path from src to dst that follows only the given
+ * kept edge set and uses at most `budget` edges. Mirrors the second step
+ * of AllDirectedPaths.getAllPaths (the DFS that walks the decorated edge
+ * map). Same DFS in both panes; the only difference is the input edge set.
+ */
+function enumerateSimplePathsOverKept(g, src, dst, keptEdges, budget) {
+  const paths = [];
+  const visited = new Uint8Array(g.nodes.length);
+  const path = [src];
+  visited[src] = 1;
+  function dfs(u, edgesUsed) {
+    if (u === dst) { paths.push(path.slice()); return; }
+    if (budget != null && edgesUsed >= budget) return;
+    for (const eIdx of g.adj[u]) {
+      if (!keptEdges.has(eIdx)) continue;
+      const v = g.edges[eIdx].v;
+      if (visited[v]) continue;
+      visited[v] = 1;
+      path.push(v);
+      dfs(v, edgesUsed + 1);
+      path.pop();
+      visited[v] = 0;
+    }
+  }
+  dfs(src, 0);
+  return paths;
+}
+
 function runNoSandwich(g, budget) {
   const events = [];
   const n = g.nodes.length;
@@ -1053,6 +1082,11 @@ function runNoSandwich(g, budget) {
   let bwdMarked = 0;
   for (let i = 0; i < n; i++) if (dB[i] !== -1) bwdMarked++;
   events.push({ kind: "sandwichSummary", retained: kept.size, dropped: 0, fwdMarked: 0, bwdMarked });
+  // Enumerate s → t simple paths over the (un-pruned) decoration map.
+  const foundPaths = enumerateSimplePathsOverKept(g, g.source, g.target, kept, budget);
+  for (let i = 0; i < foundPaths.length; i++) {
+    events.push({ kind: "accept", path: foundPaths[i], cost: foundPaths[i].length - 1, kIndex: i + 1 });
+  }
   events.push({ kind: "end" });
   return events;
 }
@@ -1123,6 +1157,13 @@ function runWithSandwich(g, budget) {
   const fwdMarked = dF.filter(x => x !== -1).length;
   const bwdMarked = dB.filter(x => x !== -1).length;
   events.push({ kind: "sandwichSummary", retained: kept.size, dropped: dropped.size, fwdMarked, bwdMarked });
+  // Enumerate s → t simple paths over the sandwich-pruned decoration map.
+  // Same DFS as in the baseline; the only difference is the smaller `kept`
+  // input, which means fewer dead-end branches to back out of.
+  const foundPaths = enumerateSimplePathsOverKept(g, g.source, g.target, kept, budget);
+  for (let i = 0; i < foundPaths.length; i++) {
+    events.push({ kind: "accept", path: foundPaths[i], cost: foundPaths[i].length - 1, kIndex: i + 1 });
+  }
   events.push({ kind: "end" });
   return events;
 }
@@ -1371,11 +1412,15 @@ class PaneState {
         this.pathLen = ev.path.length - 1;
         this.pathCost = ev.cost;
         this.spurNode = -1;
-        // In single-shortest mode we keep the explored set visible alongside
-        // the final path so the user can compare expansion frontiers.
-        if (this.mode !== "single") this.exploredNodes = new Set();
-        this.bannedEdges = new Set();
-        this.bannedNodes = new Set();
+        // Only Yen's spur scratch state should be wiped on accept; the
+        // single-shortest expansion frontier and the sandwich pane's
+        // forward/backward marks + kept/dropped edge classification need
+        // to stay visible alongside each accepted path.
+        if (this.mode === "yen") {
+          this.exploredNodes = new Set();
+          this.bannedEdges = new Set();
+          this.bannedNodes = new Set();
+        }
         this.flashEdges = pathEdges(this.g, ev.path);
         this.flashColor = "rgba(142,224,142,0.85)";
         this.flashUntil = performance.now() + 600;
