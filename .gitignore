@@ -37,3 +37,6 @@ pom.xml.releaseBackup
 .classpath
 docs/javadoc*
 docs/_site
+
+# allow checked-in JMH bench fixtures
+!jgrapht-core/src/test/resources/perf/osm/*.csv.gz
