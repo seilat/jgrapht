@@ -9,6 +9,8 @@ RUN addgroup -S app && adduser -S -G app app \
     && chown -R app:app /var/cache/nginx /var/run/nginx.pid /usr/share/nginx/html /etc/nginx/conf.d
 
 COPY --chown=app:app index.html /usr/share/nginx/html/index.html
+COPY --chown=app:app favicon.ico /usr/share/nginx/html/favicon.ico
+COPY --chown=app:app apple-touch-icon.png /usr/share/nginx/html/apple-touch-icon.png
 COPY --chown=app:app nginx.conf /etc/nginx/conf.d/default.conf
 
 USER app
