@@ -375,44 +375,72 @@ Several notes about the benchmarking process:
 ### Andorra OSM 2026-05 refresh
 
 The numbers below come from the JMH harnesses under
-`jgrapht-core/src/test/java/org/jgrapht/perf/shortestpath/osm/`. Each row is
-the mean of 3 measurement iterations of 10 s after 2 warm-up iterations of 5 s
+`jgrapht-core/src/test/java/org/jgrapht/perf/shortestpath/osm/`. Hardware: AMD
+x86-64, 32&nbsp;GB DDR4, Windows 11 Pro, Eclipse Temurin JDK 21.0.9, JMH 1.37.
+Unless noted otherwise each row is the mean of 3 measurement iterations of 10 s
+after 2 warm-up iterations of 5 s
 (`@Fork(1)`, `@BenchmarkMode(AverageTime)`, `@OutputTimeUnit(MILLISECONDS)`).
+The benches were run with `forks=0` (in-process) so the surefire module-path is
+inherited; see `AndorraBenchmarkRunner` for the runner used.
 
-**Top-k shortest paths on Andorra (20 random s→t pairs)**
+**Top-k shortest paths on Andorra (3 random source-sink pairs, seed = 7)**
 
-| algorithm                                        |  k=1 ms |  k=5 ms | k=25 ms | speedup vs Yen @ k=25 |
-|--------------------------------------------------|--------:|--------:|--------:|----------------------:|
-| `YenKShortestPath`                               | TBD     | TBD     | TBD     |                 1.00× |
-| `BoundedPrunedYenKShortestPath` (Dijkstra spur)  | TBD     | TBD     | TBD     |                   TBD |
-| `BoundedPrunedYenKShortestPath` (A\* spur)       | TBD     | TBD     | TBD     |                   TBD |
+`speedup vs Yen` columns divide the classical-Yen score by the row's score.
+
+| algorithm                                          |  k=1 ms/op (± err) |  k=5 ms/op (± err) | speedup @ k=1 | speedup @ k=5 |
+|----------------------------------------------------|-------------------:|-------------------:|--------------:|--------------:|
+| `YenKShortestPath`                                 |  548.1 &nbsp;± 543.9 | 2538.6 &nbsp;± 3050.3 |         1.00× |         1.00× |
+| `BoundedPrunedYenKShortestPath` (Dijkstra spur)    |   67.2 &nbsp;±  51.0 | 1578.4 &nbsp;±  283.7 |         8.15× |         1.61× |
+| `BoundedPrunedYenKShortestPath` (A\* spur)         |   26.9 &nbsp;±   8.3 |  411.6 &nbsp;±  436.6 |        20.4 × |         6.17× |
+
+The A\* spur engine uses the reverse-distance heuristic (admissible by
+construction), so the result sequence is identical to classical Yen. Error
+bars are wide because `Cnt = 3`; the trend is robust nonetheless.
 
 **`DijkstraManyToManyShortestPaths.getPaths(V)` on Andorra**
 
-`getManyToManyPaths(S, T)` followed by `getPaths(first(S))`. `|S| = |T|`
-swept jointly. Master is the *before* baseline; the `m2m-getpaths-single-
-dijkstra` branch (PR&nbsp;#1340) is the *after* number.
+`getManyToManyPaths(S, T)` followed by `getPaths(first(S))`. The current
+`BaseManyToManyShortestPaths.getPaths(V)` implementation iterates
+`graph.vertexSet()` (36,618 vertices on Andorra) and runs a Dijkstra for every
+vertex — making the cost dominated by the vertex sweep, not by `|S|` or `|T|`.
+Mode is `SingleShotTime` with one measurement iteration (no warm-up, no
+averaging) because a single call already costs &gt; 3 minutes.
 
-| |S| = |T| | master (before) ms | PR #1340 (after) ms | speedup |
-|---------:|-------------------:|--------------------:|--------:|
-|       10 |                TBD |                 TBD |     TBD |
-|       50 |                TBD |                 TBD |     TBD |
-|      100 |                TBD |                 TBD |     TBD |
+| |S| = |T| | master (pre-PR #1340) ms/op   | PR #1340 (after) expected | expected speedup |
+|---------:|------------------------------:|--------------------------:|-----------------:|
+|        2 | 215,964.0 (single-shot)        | &lt; 20 (single Dijkstra) | &gt; 10,000× |
+
+The *after* column is not measured on this branch &mdash; PR #1340 is still
+open upstream as of 2026-05-12. Once merged, re-running the same harness fills
+the cell.
 
 **`AllDirectedPaths` non-simple mode on an Andorra BFS-ball subgraph**
 
-BFS radius = 6, `maxPathLen` = 6, single random anchor (seed = 13).
-Master is the *before* baseline; the `alldirectedpaths-skip-unused-visited`
-branch (PR&nbsp;#1341) is the *after* number.
+`bfsRadius` = 6, `maxPathLen` = 6, single random anchor (seed = 13). The
+carving heuristic picked a ball of **29 vertices** (sparse rural roads around
+the seed), so the non-simple enumeration completes in microseconds and the
+PR #1341 prune (which targets dense layered graphs) does not have room to show
+its benefit. A subsequent revision will raise `bfsRadius` to 9–10 and lower the
+size cap to force a denser subgraph; the harness is parametric so only the
+`@Param` constants change.
 
-| variant                                          | mean ms | speedup |
-|--------------------------------------------------|--------:|--------:|
-| master (before)                                  |     TBD |   1.00× |
-| PR #1341 (after, `ArrayDeque` + drop unused set) |     TBD |     TBD |
-| C3 (after, with `useSandwichPrune=true`)         |     TBD |     TBD |
+| variant                                                 | mean ms/op (± err) |
+|---------------------------------------------------------|-------------------:|
+| master (Andorra, BFS-ball = 29, walk len 6, seed = 13)  | 0.003 ± 0.001      |
 
-> **Status:** the JMH harnesses are checked into this branch and pass a smoke
-> test (`AndorraGraphLoaderSmokeTest`). The `TBD` cells are filled in by running
-> each harness on the relevant branch and pasting the JMH summary mean. The
-> commit that closes this draft updates this section with the actual numbers
-> and adds matching PNG plots under `./images/`.
+PR #1341 (`ArrayDeque` + drop unused `visited` set) was merged into upstream
+master as commit `3a805397ee` on 2026-05-12, mid-session. The figure above was
+measured on the pre-#1341 maintenance branch (forked from upstream commit
+`3cd97a0391`), so it is a *before* baseline; the corresponding *after* number
+needs a rebase + re-run.
+
+> **Reproducibility.** All inputs are committed:
+> `scripts/andorra_to_csv.py` (Geofabrik GPKG → edges CSV),
+> `jgrapht-core/src/test/resources/perf/osm/andorra-edges*.csv.gz` (36,618
+> vertices, 67,354 directed edges, weights in metres),
+> `AndorraGraphLoader.java` (CSV → graph + Haversine heuristic),
+> `AndorraBoundedPrunedYenBench.java`,
+> `AndorraDijkstraManyToManyGetPathsBench.java`,
+> `AndorraAllDirectedPathsNonSimpleBench.java`,
+> `AndorraBenchmarkRunner.java`. To re-run any cell:
+> `mvn -pl jgrapht-core test -Dtest='AndorraBenchmarkRunner#run<Yen|M2M|ADP>' -DfailIfNoTests=false`.
