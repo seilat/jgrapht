@@ -36,14 +36,15 @@
   }
   html, body { background: var(--bg); color: var(--ink); margin: 0; font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
   header {
-    padding: 14px 18px; border-bottom: 1px solid #232838;
-    display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
+    padding: 8px 14px; border-bottom: 1px solid #232838;
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
   }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-  header .sub { color: var(--muted); }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
   .controls {
-    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-    padding: 10px 18px; background: var(--panel); border-bottom: 1px solid #232838;
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    padding: 6px 14px; background: var(--panel); border-bottom: 1px solid #232838;
+    font-size: 12px;
   }
   .controls label { color: var(--muted); margin-left: 6px; }
   .controls select, .controls button, .controls input[type=range] {
@@ -71,36 +72,36 @@
   .controls .transport button:last-child { border-right: none; }
   .controls .transport button:disabled { color: #555a6a; cursor: default; }
   .controls .transport button.primary { background: var(--accent); color: #0a0e16; }
-  .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
+  .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; }
   .pane {
     background: var(--panel); border: 1px solid #232838; border-radius: 10px;
-    display: flex; flex-direction: column; min-height: 540px;
+    display: flex; flex-direction: column; min-height: 420px;
   }
   .pane h2 {
-    margin: 0; padding: 10px 14px; font-size: 14px; font-weight: 600;
+    margin: 0; padding: 6px 12px; font-size: 13px; font-weight: 600;
     border-bottom: 1px solid #232838; display: flex; align-items: center; gap: 8px;
   }
-  .pane h2 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-weight: 500; }
+  .pane h2 .badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-weight: 500; }
   .pane .stats {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
     border-bottom: 1px solid #232838;
   }
   .pane .stat {
-    padding: 8px 12px; border-right: 1px solid #232838;
+    padding: 5px 10px; border-right: 1px solid #232838;
     display: flex; flex-direction: column; justify-content: space-between;
-    min-height: 56px;
+    min-height: 48px;
   }
   .pane .stat:last-child { border-right: none; }
   /* Reserve two lines of vertical space for the label so wraps don't push
      the number down asymmetrically across the four stat boxes. */
   .pane .stat .k {
-    color: var(--muted); font-size: 11px; text-transform: uppercase;
-    letter-spacing: 0.04em; line-height: 1.25; min-height: 2.5em;
+    color: var(--muted); font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.04em; line-height: 1.2; min-height: 2.4em;
   }
-  .pane .stat .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .pane canvas { display: block; width: 100%; height: 360px; background: var(--panel-2); }
-  .pane .status { padding: 8px 12px; color: var(--muted); border-top: 1px solid #232838; min-height: 22px; }
-  .pane .status .tag { display: inline-block; padding: 1px 8px; border-radius: 4px; margin-right: 6px; font-weight: 600; font-size: 11px; }
+  .pane .stat .v { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pane canvas { display: block; width: 100%; height: 270px; background: var(--panel-2); }
+  .pane .status { padding: 5px 12px; color: var(--muted); border-top: 1px solid #232838; min-height: 20px; font-size: 11px; }
+  .pane .status .tag { display: inline-block; padding: 1px 6px; border-radius: 4px; margin-right: 5px; font-weight: 600; font-size: 10px; }
   .tag-spur   { background: #314c75; color: #cfe1ff; }
   .tag-skip   { background: #4a3a3a; color: #f3c0a4; }
   .tag-prune  { background: #4a3a3a; color: #f3c0a4; }
@@ -108,55 +109,74 @@
   .tag-accept { background: #2f4a35; color: #c8efcb; }
   .tag-expand { background: #3d3a26; color: #f3e0a4; }
   .tag-info   { background: #2c3447; color: #b9c2d8; }
-  .legend {
-    grid-column: 1 / -1; padding: 8px 14px; color: var(--muted);
-    background: var(--panel); border: 1px solid #232838; border-radius: 10px;
-    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
-  }
-  .legend .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; margin-right: 6px; border: 1px solid #2a3142; }
   .results {
-    grid-column: 1 / -1; padding: 10px 14px; background: var(--panel);
+    grid-column: 1 / -1; padding: 8px 12px; background: var(--panel);
     border: 1px solid #232838; border-radius: 10px;
   }
-  .results h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .results h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
   .results .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
-  .results ol { margin: 0; padding-left: 20px; }
-  .results li { font-variant-numeric: tabular-nums; margin: 2px 0; }
-  .narrative {
-    grid-column: 1 / -1; padding: 14px;
+  .results ol { margin: 0; padding-left: 20px; font-size: 12px; }
+  .results li { font-variant-numeric: tabular-nums; margin: 1px 0; }
+  .legend {
+    grid-column: 1 / -1; padding: 6px 12px; color: var(--muted);
+    background: var(--panel); border: 1px solid #232838; border-radius: 10px;
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    font-size: 11px;
+  }
+  .legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 4px; border: 1px solid #2a3142; }
+  /* Long-form explainers are wrapped in <details> elements so they don't
+     consume vertical space by default at 100% zoom. Click the summary
+     line to expand. */
+  details.explainer {
+    grid-column: 1 / -1;
     background: var(--panel); border: 1px solid #232838; border-radius: 10px;
     color: var(--ink);
   }
+  details.explainer > summary {
+    padding: 8px 14px; cursor: pointer; color: var(--accent);
+    font-size: 12px; font-weight: 600; list-style: none;
+    user-select: none;
+  }
+  details.explainer > summary::after { content: " ▾"; color: var(--muted); }
+  details.explainer[open] > summary::after { content: " ▴"; }
+  details.explainer > .body { padding: 0 14px 12px; }
   .narrative h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--accent); }
-  .narrative h4 { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: #cfe1ff; text-transform: uppercase; letter-spacing: 0.04em; }
-  .narrative p { margin: 6px 0; color: #c0c6d6; }
+  .narrative h4 { margin: 10px 0 4px; font-size: 11px; font-weight: 600; color: #cfe1ff; text-transform: uppercase; letter-spacing: 0.04em; }
+  .narrative p { margin: 4px 0; color: #c0c6d6; font-size: 12px; }
   .narrative code { background: #0a0e16; padding: 1px 5px; border-radius: 4px; color: #cfe1ff; }
-  .narrative ul { margin: 4px 0 6px 18px; padding: 0; color: #c0c6d6; }
+  .narrative ul, .narrative ol { margin: 4px 0 6px 18px; padding: 0; color: #c0c6d6; font-size: 12px; }
   .narrative li { margin: 2px 0; }
   .glossary {
-    grid-column: 1 / -1;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 8px;
-    padding: 10px;
-    background: var(--panel); border: 1px solid #232838; border-radius: 10px;
   }
-  .glossary .card { background: var(--panel-2); border-radius: 6px; padding: 8px 10px; }
+  .glossary .card { background: var(--panel-2); border-radius: 6px; padding: 6px 10px; }
   .glossary .card .term { color: var(--accent); font-weight: 600; font-size: 12px; }
-  .glossary .card .def { color: #c0c6d6; font-size: 12px; line-height: 1.4; margin-top: 3px; }
+  .glossary .card .def { color: #c0c6d6; font-size: 11px; line-height: 1.35; margin-top: 3px; }
   .pane .event-info {
-    padding: 8px 12px; color: #c0c6d6; border-top: 1px solid #232838;
-    background: #131822; min-height: 36px; font-size: 12px; line-height: 1.45;
+    padding: 6px 12px; color: #c0c6d6; border-top: 1px solid #232838;
+    background: #131822; min-height: 32px; font-size: 11px; line-height: 1.4;
   }
   .pane .event-info b { color: #cfe1ff; }
-  @media (max-width: 1100px) { .panes { grid-template-columns: 1fr; } .results .row { grid-template-columns: 1fr; } }
+  /* Narrow viewport: stack the two panes vertically. The controls bar
+     already wraps via flex-wrap. A future task is the vertical transport
+     for true mobile use. */
+  @media (max-width: 980px) {
+    .panes { grid-template-columns: 1fr; }
+    .results .row { grid-template-columns: 1fr; }
+    .pane canvas { height: 230px; }
+    header { padding: 10px 12px; }
+    header h1 { font-size: 14px; }
+    header .sub { font-size: 11px; }
+  }
 </style>
 </head>
 <body>
 
 <header>
   <h1>Bounded-Pruned Yen + A* — interactive visualization</h1>
-  <span class="sub">Compares vanilla Yen + Dijkstra against bounded-pruned Yen + A* on the same input.</span>
+  <span class="sub">Yen K-shortest paths · Dijkstra vs A* · AllDirectedPaths forward pruning</span>
 </header>
 
 <div class="controls">
@@ -164,7 +184,7 @@
   <select id="mode">
     <option value="yen">K-shortest paths (Yen)</option>
     <option value="single">Single shortest path (Dijkstra vs A*)</option>
-    <option value="sandwich">All paths — sandwich prune (AllDirectedPaths)</option>
+    <option value="forwardPruning">All paths — forward pruning (AllDirectedPaths)</option>
   </select>
   <label for="budget" id="budgetLabel">Max length</label>
   <select id="budget">
@@ -223,35 +243,37 @@
     <div class="event-info" id="eventInfoB">Pick a mode and an example above, then press <b>Play</b>.</div>
   </div>
 
-  <div class="legend">
-    <span><span class="sw" style="background:var(--node-source)"></span>source</span>
-    <span><span class="sw" style="background:var(--node-target)"></span>target</span>
-    <span><span class="sw" style="background:var(--node-active)"></span>spur node / current expansion</span>
-    <span><span class="sw" style="background:var(--node-explored)"></span>explored / backward-marked</span>
-    <span><span class="sw" style="border:2px dashed #6cb3ff;background:transparent;border-radius:50%"></span>forward-marked halo (sandwich)</span>
-    <span><span class="sw" style="background:#1c2230;border:2px solid var(--node-impossible);border-radius:50%;position:relative"><span style="position:absolute;inset:0;display:block;background:linear-gradient(135deg,transparent 45%,var(--node-impossible) 45% 55%,transparent 55%),linear-gradient(45deg,transparent 45%,var(--node-impossible) 45% 55%,transparent 55%)"></span></span>impossible-spur skip (red strike)</span>
-    <span><span class="sw" style="background:var(--edge-banned);height:4px;border-radius:2px"></span>Yen-banned edge</span>
-    <span><span class="sw" style="background:var(--edge-dropped);height:4px;border-radius:2px;border:1px dashed #8c4848;border-left:none;border-right:none"></span>sandwich-dropped edge (dashed)</span>
-    <span><span class="sw" style="background:var(--edge-kept);height:4px;border-radius:2px"></span>sandwich-kept edge (decoration map)</span>
-    <span><span class="sw" style="background:var(--edge-considered);height:4px;border-radius:2px"></span>currently considered edge</span>
-    <span><span class="sw" style="background:var(--edge-active);height:4px;border-radius:2px"></span>active spur path / reconstructed path</span>
-    <span><span class="sw" style="background:var(--edge-accepted);height:4px;border-radius:2px"></span>accepted path (final answer)</span>
-  </div>
-
   <div class="results">
     <div class="row">
       <div>
-        <h3>Vanilla — paths found</h3>
+        <h3>Pane A — paths found</h3>
         <ol id="A_paths"></ol>
       </div>
       <div>
-        <h3>Bounded-pruned — paths found</h3>
+        <h3>Pane B — paths found</h3>
         <ol id="B_paths"></ol>
       </div>
     </div>
   </div>
 
-  <div class="glossary" id="glossary">
+  <div class="legend">
+    <span><span class="sw" style="background:var(--node-source)"></span>source</span>
+    <span><span class="sw" style="background:var(--node-target)"></span>target</span>
+    <span><span class="sw" style="background:var(--node-active)"></span>spur node / current expansion</span>
+    <span><span class="sw" style="background:var(--node-explored)"></span>explored / backward-marked</span>
+    <span><span class="sw" style="border:2px dashed #6cb3ff;background:transparent;border-radius:50%"></span>forward-marked halo (forward pruning)</span>
+    <span><span class="sw" style="background:#1c2230;border:2px solid var(--node-impossible);border-radius:50%;position:relative"><span style="position:absolute;inset:0;display:block;background:linear-gradient(135deg,transparent 45%,var(--node-impossible) 45% 55%,transparent 55%),linear-gradient(45deg,transparent 45%,var(--node-impossible) 45% 55%,transparent 55%)"></span></span>impossible-spur skip (red strike)</span>
+    <span><span class="sw" style="background:var(--edge-banned);height:4px;border-radius:2px"></span>Yen-banned edge</span>
+    <span><span class="sw" style="background:var(--edge-dropped);height:4px;border-radius:2px;border:1px dashed #8c4848;border-left:none;border-right:none"></span>forward-pruning dropped edge (dashed)</span>
+    <span><span class="sw" style="background:var(--edge-kept);height:4px;border-radius:2px"></span>forward-pruning kept edge (decoration map)</span>
+    <span><span class="sw" style="background:var(--edge-considered);height:4px;border-radius:2px"></span>currently considered edge</span>
+    <span><span class="sw" style="background:var(--edge-active);height:4px;border-radius:2px"></span>active spur path / reconstructed path</span>
+    <span><span class="sw" style="background:var(--edge-accepted);height:4px;border-radius:2px"></span>accepted path (final answer)</span>
+  </div>
+
+  <details class="explainer" id="glossaryWrap">
+    <summary>Glossary — expansion, relaxation, heuristic, forward-pruning gate, …</summary>
+    <div class="body glossary" id="glossary">
     <div class="card"><div class="term">Expand a node</div><div class="def">Pop the cheapest entry from the priority queue (the open set) and commit its final shortest distance from the source. Once expanded, a node is never reopened (with non-negative weights).</div></div>
     <div class="card"><div class="term">Relax an edge</div><div class="def">For an edge <code>u → v</code> with weight <code>w</code>, check whether <code>dist[u] + w</code> beats <code>v</code>'s current tentative distance. If so, update <code>v</code> and push it into the heap.</div></div>
     <div class="card"><div class="term">Open set / frontier</div><div class="def">The priority queue of nodes we've discovered but not yet expanded. Its peak size is one measure of memory pressure.</div></div>
@@ -263,10 +285,14 @@
     <div class="card"><div class="term">Forward BFS / <code>dF(v)</code></div><div class="def">Breadth-first walk from the source(s) along outgoing edges. Marks each reachable vertex with <code>dF(v)</code>, the minimum number of edges to get there. Sandwich mode draws a cyan dashed halo around every node the forward BFS reaches.</div></div>
     <div class="card"><div class="term">Backward BFS / <code>dB(v)</code></div><div class="def">Breadth-first walk from the target(s) along <em>incoming</em> edges. Marks each visited vertex with <code>dB(v)</code>, the minimum number of edges to reach a target from there. Drives <code>AllDirectedPaths</code>' edge decoration.</div></div>
     <div class="card"><div class="term">Decoration map</div><div class="def">The output of the backward BFS: each retained edge is stored with the minimum number of edges from it to a target. The subsequent path-enumeration DFS only traverses edges in this map.</div></div>
-    <div class="card"><div class="term">Orphan branch</div><div class="def">A subgraph that reaches a target but has no incoming edge from any source-reachable vertex. The baseline backward BFS happily decorates these edges; the sandwich prune drops them because no source → target walk could ever use them.</div></div>
-    <div class="card"><div class="term">Sandwich condition</div><div class="def">An edge <code>u → v</code> is retained iff <code>u</code> is forward-reachable from a source AND <code>dF(u) + 1 + dB(v) ≤ budget</code>. Both checks are necessary; together they are sufficient for the edge to lie on at least one feasible source → target walk of length ≤ budget.</div></div>
-  </div>
+    <div class="card"><div class="term">Orphan branch</div><div class="def">A subgraph that reaches a target but has no incoming edge from any source-reachable vertex. The baseline backward BFS happily decorates these edges; forward pruning drops them because no source → target walk could ever use them.</div></div>
+    <div class="card"><div class="term">Forward-pruning gate</div><div class="def">An edge <code>u → v</code> is retained iff <code>u</code> is forward-reachable from a source AND <code>dF(u) + 1 + dB(v) ≤ budget</code>. Both checks are necessary; together they are sufficient for the edge to lie on at least one feasible source → target walk of length ≤ budget. (Also known as the &ldquo;sandwich&rdquo; condition because the edge must fit between forward and backward reachability.)</div></div>
+    </div>
+  </details>
 
+  <details class="explainer" id="narrativeWrap">
+    <summary>What you're watching — algorithm explainer</summary>
+    <div class="body">
   <div class="narrative" id="narrativeYen">
     <h3>What you're watching — K-shortest paths with Yen</h3>
     <p>
@@ -318,8 +344,8 @@
     </p>
   </div>
 
-  <div class="narrative" id="narrativeSandwich" hidden>
-    <h3>What you're watching — AllDirectedPaths sandwich prune</h3>
+  <div class="narrative" id="narrativeForwardPruning" hidden>
+    <h3>What you're watching — AllDirectedPaths forward pruning</h3>
     <p>
       <code>AllDirectedPaths</code> enumerates every directed s → t walk of length at most
       <code>maxPathLength</code>. Before enumeration starts, it pre-decorates each edge with the
@@ -341,7 +367,7 @@
       That includes "orphan" branches that reach the target but have no incoming connection
       from the source — wasted bookkeeping.
     </p>
-    <h4>Right — sandwich prune (new)</h4>
+    <h4>Right — forward pruning (new)</h4>
     <p>
       Run a one-time forward BFS from the sources first; cache <code>dF(v)</code> for every
       vertex it reaches (highlighted with a cyan dashed halo). Then, during the backward BFS,
@@ -350,7 +376,7 @@
     <ul>
       <li><b>Forward-reachability.</b> If <code>u</code> isn't in the forward-BFS map at all,
         no source can reach this edge — drop it.</li>
-      <li><b>Length sandwich.</b> If <code>dF(u) + 1 + dB(v) &gt; budget</code>, no walk
+      <li><b>Length gate.</b> If <code>dF(u) + 1 + dB(v) &gt; budget</code>, no walk
         through this edge can stay within the length limit — drop it.</li>
     </ul>
     <p>
@@ -424,6 +450,8 @@
         number of expansions. The grid is where A*'s win is dramatic.</li>
     </ul>
   </div>
+    </div>
+  </details>
 
 </div>
 
@@ -1140,7 +1168,7 @@ function runStandardAstar(g) {
 }
 
 /* ============================================================
- * Sandwich-prune drivers (mode "sandwich")
+ * Sandwich-prune drivers (mode "forwardPruning")
  *
  * Models AllDirectedPaths edge-decoration prune. Both panes mirror the
  * same algorithm structure as the Java code: bootstrap backward BFS from
@@ -1163,7 +1191,7 @@ function runStandardAstar(g) {
  *   { kind:"edgeConsider",   edgeIdx, u, v, distFromTarget } // about to evaluate
  *   { kind:"edgeKeep",       edgeIdx, distFromTarget }
  *   { kind:"edgeDrop",       edgeIdx, reason }               // sandwich pane only
- *   { kind:"sandwichSummary", retained, dropped, fwdMarked, bwdMarked }
+ *   { kind:"forwardPruningSummary", retained, dropped, fwdMarked, bwdMarked }
  *   { kind:"end" }
  * ============================================================ */
 
@@ -1196,7 +1224,7 @@ function enumerateSimplePathsOverKept(g, src, dst, keptEdges, budget) {
   return paths;
 }
 
-function runNoSandwich(g, budget) {
+function runBaselineDecoration(g, budget) {
   const events = [];
   const n = g.nodes.length;
   const dB = new Array(n).fill(-1);
@@ -1224,7 +1252,7 @@ function runNoSandwich(g, budget) {
   }
   let bwdMarked = 0;
   for (let i = 0; i < n; i++) if (dB[i] !== -1) bwdMarked++;
-  events.push({ kind: "sandwichSummary", retained: kept.size, dropped: 0, fwdMarked: 0, bwdMarked });
+  events.push({ kind: "forwardPruningSummary", retained: kept.size, dropped: 0, fwdMarked: 0, bwdMarked });
   // Enumerate s → t simple paths over the (un-pruned) decoration map.
   const foundPaths = enumerateSimplePathsOverKept(g, g.source, g.target, kept, budget);
   for (let i = 0; i < foundPaths.length; i++) {
@@ -1234,7 +1262,7 @@ function runNoSandwich(g, budget) {
   return events;
 }
 
-function runWithSandwich(g, budget) {
+function runForwardPruning(g, budget) {
   const events = [];
   const n = g.nodes.length;
   // ---- Phase 1: forward BFS from source. ----
@@ -1255,14 +1283,14 @@ function runWithSandwich(g, budget) {
       }
     }
   }
-  // ---- Phase 2: backward BFS with sandwich condition. ----
-  events.push({ kind: "phase", name: "backward BFS with sandwich check" });
+  // ---- Phase 2: backward BFS with forward-pruning gate. ----
+  events.push({ kind: "phase", name: "backward BFS with forward-pruning gate" });
   const dB = new Array(n).fill(-1);
   const kept = new Set();
   const dropped = new Set();
   if (dF[g.target] === -1) {
     // Target not even reachable forward — nothing to keep.
-    events.push({ kind: "sandwichSummary", retained: 0, dropped: 0, fwdMarked: dF.filter(x => x !== -1).length, bwdMarked: 0 });
+    events.push({ kind: "forwardPruningSummary", retained: 0, dropped: 0, fwdMarked: dF.filter(x => x !== -1).length, bwdMarked: 0 });
     events.push({ kind: "end" });
     return events;
   }
@@ -1299,7 +1327,7 @@ function runWithSandwich(g, budget) {
   }
   const fwdMarked = dF.filter(x => x !== -1).length;
   const bwdMarked = dB.filter(x => x !== -1).length;
-  events.push({ kind: "sandwichSummary", retained: kept.size, dropped: dropped.size, fwdMarked, bwdMarked });
+  events.push({ kind: "forwardPruningSummary", retained: kept.size, dropped: dropped.size, fwdMarked, bwdMarked });
   // Enumerate s → t simple paths over the sandwich-pruned decoration map.
   // Same DFS as in the baseline; the only difference is the smaller `kept`
   // input, which means fewer dead-end branches to back out of.
@@ -1357,17 +1385,17 @@ const EVENT_INFO = {
     stat: () => "",
     end: () => "",
   },
-  sandwich: {
+  forwardPruning: {
     info: (ev) => `<b>info.</b> ${escapeHtml(ev.msg)}`,
     phase: (ev) => `<b>Phase: ${escapeHtml(ev.name)}.</b> ${ev.name.startsWith("forward") ? "Walk outward from the source via outgoing edges. We just need a vertex-level map <code>dF</code> — no edges retained in this phase." : "Pop the next vertex from the backward queue and inspect each of its <em>incoming</em> edges; that's where the prune decisions happen."}`,
     vertexFwd: (ev, p) => `<b>Forward BFS marks <code>${escapeHtml(p.nodeLabel(ev.node))}</code></b> at <code>dF=${ev.dist}</code>. A cyan dashed halo appears around it. Vertices not marked by this BFS will be treated as "unreachable from source" and any incoming edges to them get dropped.`,
     vertexBwd: (ev, p) => `<b>Backward BFS pops <code>${escapeHtml(p.nodeLabel(ev.node))}</code></b> at <code>dB=${ev.dist}</code>. Now we'll look at every <em>incoming</em> edge <code>u → ${escapeHtml(p.nodeLabel(ev.node))}</code> and decide whether to retain it.`,
-    edgeConsider: (ev, p) => `<b>Considering edge <code>${escapeHtml(p.nodeLabel(ev.u))} → ${escapeHtml(p.nodeLabel(ev.v))}</code></b> at distance ${ev.distFromTarget} from the target. ${p.side === "B" ? "The sandwich check is about to gate this edge." : "Baseline always retains an edge once we get this far."}`,
+    edgeConsider: (ev, p) => `<b>Considering edge <code>${escapeHtml(p.nodeLabel(ev.u))} → ${escapeHtml(p.nodeLabel(ev.v))}</code></b> at distance ${ev.distFromTarget} from the target. ${p.side === "B" ? "The forward-pruning gate is about to evaluate this edge." : "Baseline always retains an edge once we get this far."}`,
     edgeKeep: (ev) => `<b>Edge retained.</b> Stored in the decoration map with <code>dB=${ev.distFromTarget}</code>. The path-enumeration step will be allowed to traverse this edge.`,
-    edgeDrop: (ev) => `<b>Edge dropped by sandwich.</b> Reason: ${escapeHtml(ev.reason)}. Even though the backward BFS reached this edge, no source → target walk of length ≤ budget can pass through it, so we don't pollute the decoration map with it.`,
-    sandwichSummary: (ev, p) => p.side === "A"
-      ? `<b>Baseline done.</b> ${ev.retained} edges retained, ${ev.bwdMarked} vertices backward-marked. No sandwich check ran, so nothing was dropped at gate-time.`
-      : `<b>Sandwich done.</b> ${ev.retained} edges retained out of ${ev.retained + ev.dropped} considered; ${ev.dropped} dropped at the sandwich gate. ${ev.fwdMarked} vertices were forward-reachable from the source.`,
+    edgeDrop: (ev) => `<b>Edge dropped by the forward-pruning gate.</b> Reason: ${escapeHtml(ev.reason)}. Even though the backward BFS reached this edge, no source → target walk of length ≤ budget can pass through it, so we don't pollute the decoration map with it.`,
+    forwardPruningSummary: (ev, p) => p.side === "A"
+      ? `<b>Baseline done.</b> ${ev.retained} edges retained, ${ev.bwdMarked} vertices backward-marked. No forward-pruning gate ran, so nothing was dropped at gate-time.`
+      : `<b>Forward pruning done.</b> ${ev.retained} edges retained out of ${ev.retained + ev.dropped} considered; ${ev.dropped} dropped at the gate. ${ev.fwdMarked} vertices were forward-reachable from the source.`,
     stat: () => "",
     end: () => "",
   },
@@ -1402,14 +1430,14 @@ const SCHEMAS = {
       labels: ["nodes expanded", "edges relaxed", "path length", "path cost"],
     },
   },
-  sandwich: {
+  forwardPruning: {
     A: {
       h2: "AllDirectedPaths — backward BFS only",
       badge: "baseline edge decoration",
       labels: ["edges retained", "edges considered", "vertices backward-marked", "edges dropped"],
     },
     B: {
-      h2: "AllDirectedPaths — sandwich-pruned",
+      h2: "AllDirectedPaths — forward pruning",
       badge: "forward BFS + backward BFS gate",
       labels: ["edges retained", "edges considered", "vertices forward-marked", "edges dropped"],
     },
@@ -1629,7 +1657,7 @@ class PaneState {
         this.activeEdge = -1;
         this.lastEventTag = `<span class="tag tag-prune">drop</span>${escapeHtml(ev.reason)}`;
         break;
-      case "sandwichSummary":
+      case "forwardPruningSummary":
         this.edgesKeptCount = ev.retained;
         this.edgesDroppedCount = ev.dropped;
         this.fwdMarkedCount = ev.fwdMarked;
@@ -1670,7 +1698,7 @@ class PaneState {
     //   default → sandwich scaffolding → Yen ban → active spur path
     //   → accepted path (gold) → currently-considered edge (yellow)
     //   → accept flash (transient bright green pulse).
-    const isSandwich = this.mode === "sandwich";
+    const isForwardPruning = this.mode === "forwardPruning";
     for (let eIdx = 0; eIdx < g.edges.length; eIdx++) {
       const e = g.edges[eIdx];
       const u = g.nodes[e.u], v = g.nodes[e.v];
@@ -1680,7 +1708,7 @@ class PaneState {
       let dashed = false;
       // 1. Sandwich-mode classification — muted greens/reds for scaffolding
       //    so the gold accepted paths can stand out on top.
-      if (isSandwich) {
+      if (isForwardPruning) {
         if (this.keptEdges.has(eIdx))    { color = getCss("--edge-kept"); width = 1.8; }
         if (this.droppedEdges.has(eIdx)) { color = getCss("--edge-dropped"); width = 1.4; dashed = true; }
       }
@@ -1701,7 +1729,7 @@ class PaneState {
       }
       // 5. Currently considered edge (sandwich's edgeConsider event) —
       //    transient yellow, brightest.
-      if (isSandwich && this.activeEdge === eIdx) {
+      if (isForwardPruning && this.activeEdge === eIdx) {
         color = getCss("--edge-considered"); width = 4;
         dashed = false;
       }
@@ -1719,7 +1747,7 @@ class PaneState {
       // unweighted — every edge cost is 1). Also skipped when the whole
       // graph is unit-weighted, since labels of "1" everywhere are noise.
       const allUnit = g._allUnit ?? (g._allUnit = g.edges.every(ed => ed.w === 1));
-      if (!(isSandwich || allUnit)) {
+      if (!(isForwardPruning || allUnit)) {
         const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
         ctx.font = "11px ui-sans-serif, sans-serif";
         ctx.fillStyle = this.bannedEdges.has(eIdx) ? "#f0a4a4" : "#9aa3b8";
@@ -1744,7 +1772,7 @@ class PaneState {
       if (i === this.spurNode) { fill = getCss("--node-active"); stroke = "#fff1bf"; lightFill = true; }
       // Sandwich-mode forward halo: a cyan ring around nodes the forward
       // BFS has reached, drawn before the node fill.
-      if (this.mode === "sandwich" && this.forwardNodes.has(i)) {
+      if (this.mode === "forwardPruning" && this.forwardNodes.has(i)) {
         ctx.beginPath();
         ctx.arc(x, y, 18, 0, Math.PI * 2);
         ctx.strokeStyle = "#6cb3ff";
@@ -1881,11 +1909,11 @@ const paneB = new PaneState(
 
 const narrativeYen = document.getElementById("narrativeYen");
 const narrativeSingle = document.getElementById("narrativeSingle");
-const narrativeSandwich = document.getElementById("narrativeSandwich");
+const narrativeForwardPruning = document.getElementById("narrativeForwardPruning");
 function showNarrative(mode) {
   narrativeYen.hidden = (mode !== "yen");
   narrativeSingle.hidden = (mode !== "single");
-  if (narrativeSandwich) narrativeSandwich.hidden = (mode !== "sandwich");
+  if (narrativeForwardPruning) narrativeForwardPruning.hidden = (mode !== "forwardPruning");
 }
 
 let state = {
@@ -1912,7 +1940,7 @@ const EXAMPLES_PER_MODE = {
     { key: "chain", label: "Path chain (single path)" },
     { key: "wiki", label: "Yen Wikipedia 6-node graph" },
   ],
-  sandwich: [
+  forwardPruning: [
     { key: "layered", label: "Layered DAG fan-out (12 nodes, 18 edges)" },
     { key: "highway", label: "Highway + orphan chain + dead ends (12 nodes)" },
     { key: "garden", label: "Garden — orphan backward branch (7 nodes)" },
@@ -1949,12 +1977,12 @@ function loadAndRun() {
   const startMsg =
     mode === "yen" ? "Press <b>Play</b> — Yen's algorithm will iterate: find a path, generate spur tasks off it, pick the cheapest candidate, repeat."
     : mode === "single" ? "Press <b>Play</b> — the algorithm will repeatedly <em>expand</em> the cheapest node in its open set until the target is settled."
-    : "Press <b>Play</b> — the left pane runs the original backward BFS; the right pane gates each edge with a forward-BFS sandwich check.";
+    : "Press <b>Play</b> — pane B runs its forward BFS prelude first; once that finishes pane A's backward BFS starts and both proceed in lockstep.";
   document.getElementById("eventInfoA").innerHTML = startMsg;
   document.getElementById("eventInfoB").innerHTML = startMsg;
   // Show/hide K and budget pickers per mode.
   const showK = mode === "yen";
-  const showBudget = mode === "sandwich";
+  const showBudget = mode === "forwardPruning";
   if (ui.k) ui.k.style.display = showK ? "" : "none";
   if (ui.kLabel) ui.kLabel.style.display = showK ? "" : "none";
   if (ui.budget) ui.budget.style.display = showBudget ? "" : "none";
@@ -1966,11 +1994,30 @@ function loadAndRun() {
     state.eventsA = runStandardDijkstra(g);
     state.eventsB = runStandardAstar(g);
   } else {
-    state.eventsA = runNoSandwich(g, budget);
-    state.eventsB = runWithSandwich(g, budget);
+    state.eventsA = runBaselineDecoration(g, budget);
+    state.eventsB = runForwardPruning(g, budget);
   }
   state.iA = 0; state.iB = 0;
-  state.totalSteps = Math.max(state.eventsA.length, state.eventsB.length);
+  state.mode = mode;
+  // In forward-pruning mode pane B runs its forward-BFS prelude alone (the
+  // events before the second "phase" event), then pane A's backward BFS
+  // catches up and the two run in lockstep. Find that prelude length so
+  // applyOne() can gate pane A while pane B drains it. For other modes the
+  // offset is zero — both panes start together.
+  state.preludeB = 0;
+  if (mode === "forwardPruning") {
+    let phaseCount = 0;
+    for (let i = 0; i < state.eventsB.length; i++) {
+      if (state.eventsB[i].kind === "phase") {
+        phaseCount += 1;
+        if (phaseCount === 2) { state.preludeB = i; break; }
+      }
+    }
+  }
+  state.totalSteps = state.preludeB + Math.max(
+    state.eventsA.length,
+    state.eventsB.length - state.preludeB,
+  );
   state.step = 0;
   ui.pathsA.innerHTML = "";
   ui.pathsB.innerHTML = "";
@@ -1990,7 +2037,11 @@ function pushPathRow(listEl, path, cost, g) {
 
 function applyOne() {
   let progressed = false;
-  if (state.iA < state.eventsA.length) {
+  // Pane A is gated during pane B's forward-BFS prelude in forward-pruning
+  // mode, so the viewer sees the sandwich-style precompute happen first,
+  // and the actual backward BFS in both panes starts together.
+  const aWaiting = state.mode === "forwardPruning" && state.iB < state.preludeB;
+  if (!aWaiting && state.iA < state.eventsA.length) {
     const ev = state.eventsA[state.iA++];
     paneA.applyEvent(ev);
     if (ev.kind === "accept") pushPathRow(ui.pathsA, ev.path, ev.cost, state.g);
