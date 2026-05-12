@@ -1,5 +1,7 @@
 # Bounded-Pruned Yen + A\* — interactive visualization
 
+**Live:** https://seilat.github.io/jgrapht/visualizations/
+
 A single self-contained HTML page that animates and compares three pairs of
 shortest-path algorithms, side by side:
 
