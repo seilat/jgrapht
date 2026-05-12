@@ -65,9 +65,18 @@
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
     border-bottom: 1px solid #232838;
   }
-  .pane .stat { padding: 8px 12px; border-right: 1px solid #232838; }
+  .pane .stat {
+    padding: 8px 12px; border-right: 1px solid #232838;
+    display: flex; flex-direction: column; justify-content: space-between;
+    min-height: 56px;
+  }
   .pane .stat:last-child { border-right: none; }
-  .pane .stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  /* Reserve two lines of vertical space for the label so wraps don't push
+     the number down asymmetrically across the four stat boxes. */
+  .pane .stat .k {
+    color: var(--muted); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.04em; line-height: 1.25; min-height: 2.5em;
+  }
   .pane .stat .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .pane canvas { display: block; width: 100%; height: 360px; background: var(--panel-2); }
   .pane .status { padding: 8px 12px; color: var(--muted); border-top: 1px solid #232838; min-height: 22px; }
@@ -154,7 +163,8 @@
   <button id="run" class="primary">Run</button>
   <button id="play">▶ Play</button>
   <button id="pause" disabled>❚❚ Pause</button>
-  <button id="step">Step</button>
+  <button id="stepBack" title="Step backward one event">◀ Step</button>
+  <button id="step" title="Step forward one event">Step ▶</button>
   <button id="reset">Reset</button>
   <label for="speed">Speed</label>
   <input id="speed" type="range" min="60" max="1200" value="450" step="20">
@@ -195,10 +205,11 @@
     <span><span class="sw" style="background:var(--node-source)"></span>source</span>
     <span><span class="sw" style="background:var(--node-target)"></span>target</span>
     <span><span class="sw" style="background:var(--node-active)"></span>spur node / current expansion</span>
-    <span><span class="sw" style="background:var(--node-explored)"></span>explored by current spur</span>
-    <span><span class="sw" style="background:var(--edge-banned);height:4px;border-radius:2px"></span>banned edge (Yen rule)</span>
-    <span><span class="sw" style="background:var(--edge-active);height:4px;border-radius:2px"></span>current spur path</span>
-    <span><span class="sw" style="background:var(--edge-final);height:4px;border-radius:2px"></span>accepted k-th path</span>
+    <span><span class="sw" style="background:var(--node-explored)"></span>explored / backward-marked</span>
+    <span><span class="sw" style="border:2px dashed #6cb3ff;background:transparent;border-radius:50%"></span>forward-marked halo (sandwich)</span>
+    <span><span class="sw" style="background:var(--edge-banned);height:4px;border-radius:2px"></span>banned edge (Yen) / dropped edge (sandwich)</span>
+    <span><span class="sw" style="background:var(--edge-active);height:4px;border-radius:2px"></span>current spur path / active edge</span>
+    <span><span class="sw" style="background:var(--edge-final);height:4px;border-radius:2px"></span>accepted path / retained edge (sandwich)</span>
   </div>
 
   <div class="results">
@@ -223,6 +234,11 @@
     <div class="card"><div class="term">Spur node (Yen)</div><div class="def">The branching point in Yen's algorithm: the next candidate path follows the previous accepted path up to this node, then deviates.</div></div>
     <div class="card"><div class="term">Banned edge (Yen)</div><div class="def">Removed from the spur sub-search so the resulting path can't re-create an already-accepted path with the same prefix. Internal nodes of the prefix are also banned to keep the path simple.</div></div>
     <div class="card"><div class="term">Lower bound (bounded-pruned)</div><div class="def"><code>prefixCost + h[spurNode]</code> — a provable minimum for any path built off this spur. If it already exceeds the cheapest candidate we've found, the spur cannot win and is pruned without running.</div></div>
+    <div class="card"><div class="term">Forward BFS / <code>dF(v)</code></div><div class="def">Breadth-first walk from the source(s) along outgoing edges. Marks each reachable vertex with <code>dF(v)</code>, the minimum number of edges to get there. Sandwich mode draws a cyan dashed halo around every node the forward BFS reaches.</div></div>
+    <div class="card"><div class="term">Backward BFS / <code>dB(v)</code></div><div class="def">Breadth-first walk from the target(s) along <em>incoming</em> edges. Marks each visited vertex with <code>dB(v)</code>, the minimum number of edges to reach a target from there. Drives <code>AllDirectedPaths</code>' edge decoration.</div></div>
+    <div class="card"><div class="term">Decoration map</div><div class="def">The output of the backward BFS: each retained edge is stored with the minimum number of edges from it to a target. The subsequent path-enumeration DFS only traverses edges in this map.</div></div>
+    <div class="card"><div class="term">Orphan branch</div><div class="def">A subgraph that reaches a target but has no incoming edge from any source-reachable vertex. The baseline backward BFS happily decorates these edges; the sandwich prune drops them because no source → target walk could ever use them.</div></div>
+    <div class="card"><div class="term">Sandwich condition</div><div class="def">An edge <code>u → v</code> is retained iff <code>u</code> is forward-reachable from a source AND <code>dF(u) + 1 + dB(v) ≤ budget</code>. Both checks are necessary; together they are sufficient for the edge to lie on at least one feasible source → target walk of length ≤ budget.</div></div>
   </div>
 
   <div class="narrative" id="narrativeYen">
@@ -556,6 +572,55 @@ const EXAMPLES = {
       { u: "S", v: "d", w: 1 },   // forward-only dead end
       { u: "x", v: "y", w: 1 },   // orphan: not source-reachable
       { u: "y", v: "T", w: 1 },   // orphan: not source-reachable
+    ],
+    source: "S",
+    target: "T",
+  }),
+
+  // --- Sandwich: "highway with orphan chain + dead ends" ------------------
+  // Bigger graph that shows both kinds of sandwich savings on one example:
+  //   - The orphan chain X→Y→Z→W→T is target-reachable but not
+  //     source-reachable; the baseline backward BFS still decorates it.
+  //     The sandwich drops W→T at the gate and never queues the rest.
+  //   - The dead-end branch A→P→Q is forward-reachable from S but doesn't
+  //     reach T at all, so the backward BFS never sees those edges either
+  //     way — but the forward BFS marks P and Q with a halo, which makes
+  //     the "forward set" visible to the viewer.
+  highway: () => ({
+    title: "Highway + orphan chain + dead ends",
+    nodes: [
+      { id: "S",  x: 0.05, y: 0.50 },
+      { id: "A",  x: 0.22, y: 0.32 },
+      { id: "B",  x: 0.45, y: 0.32 },
+      { id: "C",  x: 0.70, y: 0.42 },
+      { id: "D",  x: 0.28, y: 0.62 },
+      { id: "T",  x: 0.92, y: 0.50 },
+      // Orphan chain — backward-reachable to T, unreachable from S.
+      { id: "X",  x: 0.28, y: 0.05 },
+      { id: "Y",  x: 0.46, y: 0.05 },
+      { id: "Z",  x: 0.62, y: 0.08 },
+      { id: "W",  x: 0.78, y: 0.18 },
+      // Source-only dead end.
+      { id: "P",  x: 0.42, y: 0.85 },
+      { id: "Q",  x: 0.62, y: 0.92 },
+    ],
+    edges: [
+      // Two main routes S → ... → T.
+      { u: "S", v: "A", w: 1 },
+      { u: "A", v: "B", w: 1 },
+      { u: "B", v: "C", w: 1 },
+      { u: "C", v: "T", w: 1 },
+      { u: "S", v: "D", w: 1 },
+      { u: "D", v: "C", w: 1 },
+      // Orphan chain (sandwich drops the last edge at the gate, never
+      // visits the rest).
+      { u: "X", v: "Y", w: 1 },
+      { u: "Y", v: "Z", w: 1 },
+      { u: "Z", v: "W", w: 1 },
+      { u: "W", v: "T", w: 1 },
+      // Dead-end branch off A (forward-reachable, never reaches T).
+      { u: "A", v: "P", w: 1 },
+      { u: "P", v: "Q", w: 1 },
     ],
     source: "S",
     target: "T",
@@ -1638,6 +1703,7 @@ const ui = {
   run: document.getElementById("run"),
   play: document.getElementById("play"),
   pause: document.getElementById("pause"),
+  stepBack: document.getElementById("stepBack"),
   step: document.getElementById("step"),
   reset: document.getElementById("reset"),
   speed: document.getElementById("speed"),
@@ -1707,8 +1773,9 @@ const EXAMPLES_PER_MODE = {
     { key: "wiki", label: "Yen Wikipedia 6-node graph" },
   ],
   sandwich: [
-    { key: "garden", label: "Garden — orphan backward branch" },
-    { key: "tight", label: "Tight-budget diamond" },
+    { key: "highway", label: "Highway + orphan chain + dead ends (12 nodes)" },
+    { key: "garden", label: "Garden — orphan backward branch (7 nodes)" },
+    { key: "tight", label: "Tight-budget diamond (5 nodes)" },
   ],
 };
 
@@ -1800,6 +1867,20 @@ function applyOne() {
   return progressed;
 }
 
+// Step backward by one event. Implemented as a reset + fast-forward to
+// state.step - 1, which keeps the event-application code path single-
+// sourced. Trivially fast for the event counts these algorithms produce
+// (<1500 events on the largest example).
+function stepBack() {
+  if (state.step <= 0) return;
+  const targetStep = state.step - 1;
+  paneA.reset(); paneB.reset();
+  state.iA = 0; state.iB = 0; state.step = 0;
+  ui.pathsA.innerHTML = "";
+  ui.pathsB.innerHTML = "";
+  for (let i = 0; i < targetStep; i++) applyOne();
+}
+
 function play() {
   if (state.playing) return;
   state.playing = true;
@@ -1823,6 +1904,7 @@ ui.run.addEventListener("click", () => { pause(); loadAndRun(); play(); });
 ui.play.addEventListener("click", play);
 ui.pause.addEventListener("click", pause);
 ui.step.addEventListener("click", () => { pause(); applyOne(); });
+ui.stepBack.addEventListener("click", () => { pause(); stepBack(); });
 ui.reset.addEventListener("click", () => { pause(); loadAndRun(); });
 ui.speed.addEventListener("input", () => { ui.speedLbl.textContent = ui.speed.value + " ms/step"; });
 ui.mode.addEventListener("change", () => { pause(); loadAndRun(); });
