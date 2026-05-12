@@ -19,13 +19,18 @@
     --bad: #f06f6f;
     --grid: #2a3142;
     --edge: #4a5066;
-    --edge-banned: #f06f6f;
-    --edge-active: #6cb3ff;
-    --edge-final: #8ee08e;
+    --edge-banned: #d8595e;         /* Yen-rule banned edge (solid red) */
+    --edge-dropped: #8c4848;        /* sandwich dropped (darker, dashed) */
+    --edge-kept: #4f7a59;           /* sandwich kept — muted scaffolding */
+    --edge-active: #6cb3ff;         /* active spur path / current edge */
+    --edge-considered: #f3c04a;     /* edge being evaluated this step */
+    --edge-accepted: #ffd166;       /* final answer — gold, persists */
+    --edge-final: #8ee08e;          /* legacy: bright green accent */
     --node-fill: #2a3142;
     --node-stroke: #6c7488;
     --node-explored: #8ee08e;
     --node-active: #f3c04a;
+    --node-impossible: #d8595e;     /* spur-node red strike on impossible skip */
     --node-source: #6cb3ff;
     --node-target: #c58cf0;
   }
@@ -51,6 +56,21 @@
   .controls button.primary { background: var(--accent); color: #0a0e16; border-color: var(--accent); font-weight: 600; }
   .controls button.primary:hover { filter: brightness(1.08); }
   .controls .spacer { flex: 1; }
+  /* Stereo-style transport bar: tight grouping, square-ish buttons,
+     prominent symbols. Eject, prev, play, pause, next, stop. */
+  .controls .transport {
+    display: inline-flex; gap: 0; align-items: stretch;
+    border: 1px solid #2c3447; border-radius: 8px; overflow: hidden;
+    background: var(--panel-2);
+  }
+  .controls .transport button {
+    border: none; border-right: 1px solid #2c3447; border-radius: 0;
+    padding: 6px 12px; min-width: 36px; font-size: 14px;
+    background: transparent; color: var(--ink);
+  }
+  .controls .transport button:last-child { border-right: none; }
+  .controls .transport button:disabled { color: #555a6a; cursor: default; }
+  .controls .transport button.primary { background: var(--accent); color: #0a0e16; }
   .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
   .pane {
     background: var(--panel); border: 1px solid #232838; border-radius: 10px;
@@ -160,12 +180,14 @@
   <select id="k">
     <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option>
   </select>
-  <button id="run" class="primary">Run</button>
-  <button id="play">▶ Play</button>
-  <button id="pause" disabled>❚❚ Pause</button>
-  <button id="stepBack" title="Step backward one event">◀ Step</button>
-  <button id="step" title="Step forward one event">Step ▶</button>
-  <button id="reset">Reset</button>
+  <span class="transport">
+    <button id="run" class="primary" title="Load — build the graph and the event stream">⏏</button>
+    <button id="stepBack" title="Previous step">⏮</button>
+    <button id="play" title="Play">▶</button>
+    <button id="pause" disabled title="Pause">❚❚</button>
+    <button id="step" title="Next step">⏭</button>
+    <button id="reset" title="Stop and reset to step 0">⏹</button>
+  </span>
   <label for="speed">Speed</label>
   <input id="speed" type="range" min="60" max="1200" value="450" step="20">
   <span id="speedLbl" class="sub">450 ms/step</span>
@@ -207,9 +229,13 @@
     <span><span class="sw" style="background:var(--node-active)"></span>spur node / current expansion</span>
     <span><span class="sw" style="background:var(--node-explored)"></span>explored / backward-marked</span>
     <span><span class="sw" style="border:2px dashed #6cb3ff;background:transparent;border-radius:50%"></span>forward-marked halo (sandwich)</span>
-    <span><span class="sw" style="background:var(--edge-banned);height:4px;border-radius:2px"></span>banned edge (Yen) / dropped edge (sandwich)</span>
-    <span><span class="sw" style="background:var(--edge-active);height:4px;border-radius:2px"></span>current spur path / active edge</span>
-    <span><span class="sw" style="background:var(--edge-final);height:4px;border-radius:2px"></span>accepted path / retained edge (sandwich)</span>
+    <span><span class="sw" style="background:#1c2230;border:2px solid var(--node-impossible);border-radius:50%;position:relative"><span style="position:absolute;inset:0;display:block;background:linear-gradient(135deg,transparent 45%,var(--node-impossible) 45% 55%,transparent 55%),linear-gradient(45deg,transparent 45%,var(--node-impossible) 45% 55%,transparent 55%)"></span></span>impossible-spur skip (red strike)</span>
+    <span><span class="sw" style="background:var(--edge-banned);height:4px;border-radius:2px"></span>Yen-banned edge</span>
+    <span><span class="sw" style="background:var(--edge-dropped);height:4px;border-radius:2px;border:1px dashed #8c4848;border-left:none;border-right:none"></span>sandwich-dropped edge (dashed)</span>
+    <span><span class="sw" style="background:var(--edge-kept);height:4px;border-radius:2px"></span>sandwich-kept edge (decoration map)</span>
+    <span><span class="sw" style="background:var(--edge-considered);height:4px;border-radius:2px"></span>currently considered edge</span>
+    <span><span class="sw" style="background:var(--edge-active);height:4px;border-radius:2px"></span>active spur path / reconstructed path</span>
+    <span><span class="sw" style="background:var(--edge-accepted);height:4px;border-radius:2px"></span>accepted path (final answer)</span>
   </div>
 
   <div class="results">
@@ -572,6 +598,58 @@ const EXAMPLES = {
       { u: "S", v: "d", w: 1 },   // forward-only dead end
       { u: "x", v: "y", w: 1 },   // orphan: not source-reachable
       { u: "y", v: "T", w: 1 },   // orphan: not source-reachable
+    ],
+    source: "S",
+    target: "T",
+  }),
+
+  // --- Sandwich: "layered DAG" -------------------------------------------
+  // 13 nodes, 18 edges, budget = 3. Three "in" hubs, three "out" hubs, plus
+  // an orphan chain on top (target-reachable, source-unreachable) and a
+  // sub-orphan feeding the orphan chain. Shows the sandwich gate dropping
+  // O2 → T at the first opportunity and then never queueing the rest of
+  // the chain (M1 → O1 → O2 stay untouched).
+  layered: () => ({
+    title: "Layered DAG — fan-out + fan-in",
+    nodes: [
+      { id: "S",  x: 0.05, y: 0.50 },
+      { id: "a",  x: 0.25, y: 0.30 },
+      { id: "b",  x: 0.25, y: 0.55 },
+      { id: "c",  x: 0.25, y: 0.80 },
+      { id: "x1", x: 0.55, y: 0.30 },
+      { id: "x2", x: 0.55, y: 0.55 },
+      { id: "x3", x: 0.55, y: 0.80 },
+      { id: "T",  x: 0.85, y: 0.55 },
+      // Orphan chain — backward-reachable, source-unreachable.
+      { id: "O1", x: 0.40, y: 0.05 },
+      { id: "O2", x: 0.60, y: 0.05 },
+      { id: "M1", x: 0.22, y: 0.05 },
+      // Source-only dead end (forward halo, no S → T path).
+      { id: "DE", x: 0.40, y: 0.95 },
+    ],
+    edges: [
+      // S → {a, b, c}
+      { u: "S", v: "a", w: 1 },
+      { u: "S", v: "b", w: 1 },
+      { u: "S", v: "c", w: 1 },
+      // {a, b, c} → {x1, x2, x3} (partial bipartite)
+      { u: "a", v: "x1", w: 1 },
+      { u: "a", v: "x2", w: 1 },
+      { u: "b", v: "x1", w: 1 },
+      { u: "b", v: "x2", w: 1 },
+      { u: "b", v: "x3", w: 1 },
+      { u: "c", v: "x2", w: 1 },
+      { u: "c", v: "x3", w: 1 },
+      // {x1, x2, x3} → T
+      { u: "x1", v: "T", w: 1 },
+      { u: "x2", v: "T", w: 1 },
+      { u: "x3", v: "T", w: 1 },
+      // Orphan chain.
+      { u: "M1", v: "O1", w: 1 },
+      { u: "O1", v: "O2", w: 1 },
+      { u: "O2", v: "T",  w: 1 },
+      // Source-side dead end (forward-marked, never reaches T).
+      { u: "a",  v: "DE", w: 1 },
     ],
     source: "S",
     target: "T",
@@ -1400,8 +1478,10 @@ class PaneState {
     this.keptEdges = new Set();
     this.droppedEdges = new Set();
     this.spurNode = -1;
+    this.impossibleSpurNode = -1;     // last spur node skipped as impossible
     this.activePath = null;
     this.acceptedPaths = [];
+    this.acceptedPathEdges = new Set();  // edge keys ((u<<16)|v) across all accepts; drawn gold
     this.lastEventTag = "Ready.";
     this.spurCount = 0;
     this.expansionCount = 0;
@@ -1443,6 +1523,7 @@ class PaneState {
         this.bannedEdges = ev.bannedEdges;
         this.bannedNodes = ev.bannedNodes;
         this.spurNode = ev.spurNodeIdx;
+        this.impossibleSpurNode = -1;
         this.activeRootPath = ev.rootPath;
         this.activePath = ev.rootPath.slice();
         this.exploredNodes = new Set();
@@ -1460,7 +1541,12 @@ class PaneState {
         break;
       case "spurSkip":
         this.lastEventTag = `<span class="tag tag-skip">skip</span>${escapeHtml(ev.reason)}`;
-        if (ev.reason && ev.reason.startsWith("impossible")) this.prunedCount += 1;
+        if (ev.reason && ev.reason.startsWith("impossible")) {
+          this.prunedCount += 1;
+          // Mark the spur node with a red strike so the viewer can see
+          // why this spur was skipped without reading the status line.
+          this.impossibleSpurNode = this.spurNode;
+        }
         break;
       case "candidate":
         this.candCount += 1;
@@ -1477,6 +1563,13 @@ class PaneState {
         this.pathLen = ev.path.length - 1;
         this.pathCost = ev.cost;
         this.spurNode = -1;
+        this.impossibleSpurNode = -1;
+        // Persist accepted edges in gold across all modes. Sandwich and
+        // Yen both produce multiple accepts; without this, only the last
+        // accept's path stays visible (the previous activePath bug).
+        for (let i = 0; i + 1 < ev.path.length; i++) {
+          this.acceptedPathEdges.add((ev.path[i] << 16) | ev.path[i + 1]);
+        }
         // Only Yen's spur scratch state should be wiped on accept; the
         // single-shortest expansion frontier and the sandwich pane's
         // forward/backward marks + kept/dropped edge classification need
@@ -1487,9 +1580,17 @@ class PaneState {
           this.bannedNodes = new Set();
         }
         this.flashEdges = pathEdges(this.g, ev.path);
-        this.flashColor = "rgba(142,224,142,0.85)";
+        this.flashColor = "rgba(170,255,170,0.95)";
         this.flashUntil = performance.now() + 600;
-        setTimeout(() => { this.flashEdges = null; this.draw(); }, 650);
+        // After the flash, drop the transient blue activePath highlight so
+        // the persistent gold acceptedPathEdges takes over. For sandwich
+        // mode this is essential — otherwise the last accept's path stays
+        // blue and overwrites the gold display.
+        setTimeout(() => {
+          this.flashEdges = null;
+          if (this.mode !== "yen") this.activePath = null;
+          this.draw();
+        }, 650);
         this.lastEventTag = this.mode === "single"
           ? `<span class="tag tag-accept">final</span>path cost ${ev.cost}, length ${ev.path.length - 1}`
           : `<span class="tag tag-accept">accept #${ev.kIndex}</span>cost ${ev.cost}`;
@@ -1564,44 +1665,70 @@ class PaneState {
     // Project node positions to canvas.
     const px = (n) => 24 + n.x * (cw - 48);
     const py = (n) => 24 + n.y * (ch - 48);
-    // Edges first.
+    // Edges first. Layer the visual decisions from least → most prominent
+    // so the later assignments overwrite the earlier ones cleanly:
+    //   default → sandwich scaffolding → Yen ban → active spur path
+    //   → accepted path (gold) → currently-considered edge (yellow)
+    //   → accept flash (transient bright green pulse).
+    const isSandwich = this.mode === "sandwich";
     for (let eIdx = 0; eIdx < g.edges.length; eIdx++) {
       const e = g.edges[eIdx];
       const u = g.nodes[e.u], v = g.nodes[e.v];
       const x1 = px(u), y1 = py(u), x2 = px(v), y2 = py(v);
-      const banned = this.bannedEdges.has(eIdx);
-      let color = banned ? getCss("--edge-banned") : getCss("--edge");
+      let color = getCss("--edge");
       let width = 1.4;
-      // Sandwich-mode edge classification.
-      if (this.mode === "sandwich") {
-        if (this.droppedEdges.has(eIdx)) { color = getCss("--edge-banned"); width = 1.4; }
-        if (this.keptEdges.has(eIdx))    { color = getCss("--edge-final"); width = 3; }
-        if (this.activeEdge === eIdx)    { color = getCss("--node-active"); width = 4; }
+      let dashed = false;
+      // 1. Sandwich-mode classification — muted greens/reds for scaffolding
+      //    so the gold accepted paths can stand out on top.
+      if (isSandwich) {
+        if (this.keptEdges.has(eIdx))    { color = getCss("--edge-kept"); width = 1.8; }
+        if (this.droppedEdges.has(eIdx)) { color = getCss("--edge-dropped"); width = 1.4; dashed = true; }
       }
-      // Draw the active path edges thick blue (Yen / single modes).
+      // 2. Yen-rule banned edges — solid red, thin.
+      if (this.bannedEdges.has(eIdx)) { color = getCss("--edge-banned"); width = 1.6; }
+      // 3. Active spur path / single-mode reconstructed path — blue, thick.
       if (this.activePath && pathContainsEdge(this.activePath, e.u, e.v)) {
         color = getCss("--edge-active"); width = 3;
+        dashed = false;
       }
-      // Flash on accept.
+      // 4. Accepted path edges — gold, persistent across every accept.
+      //    Drawn after the spur/active highlight so the user can see the
+      //    final answer once the spur fades.
+      const edgeKey = (e.u << 16) | e.v;
+      if (this.acceptedPathEdges.has(edgeKey)) {
+        color = getCss("--edge-accepted"); width = 3.4;
+        dashed = false;
+      }
+      // 5. Currently considered edge (sandwich's edgeConsider event) —
+      //    transient yellow, brightest.
+      if (isSandwich && this.activeEdge === eIdx) {
+        color = getCss("--edge-considered"); width = 4;
+        dashed = false;
+      }
+      // 6. Accept flash — brief pulse over the whole path.
       const now = performance.now();
       if (this.flashEdges && now < this.flashUntil) {
-        const k = (e.u << 16) | e.v;
-        if (this.flashEdges.has(k)) { color = this.flashColor; width = 4; }
+        if (this.flashEdges.has(edgeKey)) { color = this.flashColor; width = 4.5; dashed = false; }
       } else if (this.flashEdges && now >= this.flashUntil) {
         this.flashEdges = null;
       }
+      if (dashed) ctx.setLineDash([6, 4]);
       drawArrow(ctx, x1, y1, x2, y2, 14, color, width);
-      // Edge weight label.
-      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-      ctx.font = "11px ui-sans-serif, sans-serif";
-      ctx.fillStyle = banned ? "#f0a4a4" : "#9aa3b8";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      // Offset label perpendicular to edge so reverse-direction labels
-      // don't fully overlap.
-      const dx = x2 - x1, dy = y2 - y1;
-      const L = Math.hypot(dx, dy) || 1;
-      const ox = -dy / L * 8, oy = dx / L * 8;
-      ctx.fillText(String(e.w), mx + ox, my + oy);
+      if (dashed) ctx.setLineDash([]);
+      // Weight labels: not useful in sandwich mode (AllDirectedPaths is
+      // unweighted — every edge cost is 1). Also skipped when the whole
+      // graph is unit-weighted, since labels of "1" everywhere are noise.
+      const allUnit = g._allUnit ?? (g._allUnit = g.edges.every(ed => ed.w === 1));
+      if (!(isSandwich || allUnit)) {
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+        ctx.font = "11px ui-sans-serif, sans-serif";
+        ctx.fillStyle = this.bannedEdges.has(eIdx) ? "#f0a4a4" : "#9aa3b8";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        const dx = x2 - x1, dy = y2 - y1;
+        const L = Math.hypot(dx, dy) || 1;
+        const ox = -dy / L * 8, oy = dx / L * 8;
+        ctx.fillText(String(e.w), mx + ox, my + oy);
+      }
     }
     // Nodes on top.
     for (let i = 0; i < g.nodes.length; i++) {
@@ -1636,6 +1763,19 @@ class PaneState {
       ctx.font = "11px ui-monospace, monospace";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(n.id, x, y);
+      // Impossible-spur indicator: a red strike across the spur node
+      // when its only outgoing edges have all been banned (Yen's
+      // impossible-spur skip / sandwich's "no outgoing fwd edge" gate).
+      if (i === this.impossibleSpurNode) {
+        ctx.strokeStyle = getCss("--node-impossible");
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x - 14, y - 14);
+        ctx.lineTo(x + 14, y + 14);
+        ctx.moveTo(x + 14, y - 14);
+        ctx.lineTo(x - 14, y + 14);
+        ctx.stroke();
+      }
     }
   }
 }
@@ -1773,6 +1913,7 @@ const EXAMPLES_PER_MODE = {
     { key: "wiki", label: "Yen Wikipedia 6-node graph" },
   ],
   sandwich: [
+    { key: "layered", label: "Layered DAG fan-out (12 nodes, 18 edges)" },
     { key: "highway", label: "Highway + orphan chain + dead ends (12 nodes)" },
     { key: "garden", label: "Garden — orphan backward branch (7 nodes)" },
     { key: "tight", label: "Tight-budget diamond (5 nodes)" },
