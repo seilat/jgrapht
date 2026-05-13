@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-Render the Andorra OSM 2026-05 benchmark plots embedded by the wiki page.
+Render the Andorra OSM top-k shortest paths benchmark plots embedded by the
+wiki page.
 
 Inputs are the JMH summary text files written by AndorraBenchmarkRunner to
-target/jmh-andorra/{yen,m2m,adp}.txt. The numbers are also reproduced inline
-below so this script works without an actual JMH run; pass --from-target to
-re-parse the JMH text files instead.
+target/jmh-andorra/yen.txt. The numbers are also reproduced inline below so
+this script works without an actual JMH run; pass --from-target to re-parse
+the JMH text file instead.
 
-Outputs are PNGs written under docs/wiki/images/.
+Outputs are PNGs written under docs/wiki/images/:
+    k_shortest_andorra.png         - log-scale bar chart over all three algorithms
+    k_shortest_andorra_scaled.png  - linear-scale zoom on the BoundedPrunedYen pair
 
 Usage:
     python scripts/render_andorra_plots.py
@@ -39,22 +42,10 @@ class YenRow:
     err_ms: float
 
 
-@dataclass(frozen=True)
-class M2MRow:
-    n: int
-    mean_ms: float
-
-
-@dataclass(frozen=True)
-class AdpRow:
-    bfs_radius: int
-    max_path_len: int
-    mean_ms: float
-    err_ms: float
-
-
-# Default numbers — measured 2026-05-12 on the maintenance branch (pre-#1341
-# rebase) on AMD x86-64 / 32 GB DDR4 / Windows 11 Pro / Temurin JDK 21.0.9.
+# Default numbers measured on the maintenance branch (post-#1341 master) on
+# AMD x86-64 / 32 GB DDR4 / Windows 11 Pro / Eclipse Temurin JDK 21.0.9 /
+# JMH 1.37 with 3 random source-sink pairs (seed = 7), 2 warm-up iterations of
+# 5 s and 3 measurement iterations of 10 s.
 DEFAULT_YEN: list[YenRow] = [
     YenRow("Yen", 1, 548.129, 543.865),
     YenRow("Yen", 5, 2538.576, 3050.256),
@@ -64,24 +55,9 @@ DEFAULT_YEN: list[YenRow] = [
     YenRow("BPYen+A*", 5, 411.600, 436.627),
 ]
 
-DEFAULT_M2M: list[M2MRow] = [
-    # Pre-PR-#1340 catastrophe: getPaths(V) iterates graph.vertexSet().
-    M2MRow(n=2, mean_ms=215_964.016),
-]
-
-DEFAULT_ADP: list[AdpRow] = [
-    AdpRow(bfs_radius=6, max_path_len=6, mean_ms=0.003, err_ms=0.001),
-]
-
 
 YEN_TXT_LINE = re.compile(
     r"^AndorraBoundedPrunedYenBench\.(\S+)\s+(\d+)\s+\S+\s+\d+\s+([\d.]+)\s+\D+\s+([\d.]+)"
-)
-M2M_TXT_LINE = re.compile(
-    r"^AndorraDijkstraManyToManyGetPathsBench\.\S+\s+(\d+)\s+\S+\s+\d+\s+([\d.]+)"
-)
-ADP_TXT_LINE = re.compile(
-    r"^AndorraAllDirectedPathsNonSimpleBench\.\S+\s+(\d+)\s+(\d+)\s+\S+\s+\d+\s+([\d.]+)\s+\D+\s+([\d.]+)"
 )
 
 
@@ -104,71 +80,51 @@ def parse_yen_txt(path: Path) -> list[YenRow]:
     return rows
 
 
-def parse_m2m_txt(path: Path) -> list[M2MRow]:
-    rows: list[M2MRow] = []
-    if not path.exists():
-        return rows
-    for line in path.read_text(encoding="utf-8").splitlines():
-        m = M2M_TXT_LINE.match(line)
-        if m is None:
-            continue
-        n_str, mean_str = m.groups()
-        rows.append(M2MRow(int(n_str), float(mean_str)))
-    return rows
-
-
-def parse_adp_txt(path: Path) -> list[AdpRow]:
-    rows: list[AdpRow] = []
-    if not path.exists():
-        return rows
-    for line in path.read_text(encoding="utf-8").splitlines():
-        m = ADP_TXT_LINE.match(line)
-        if m is None:
-            continue
-        r, l, mean, err = m.groups()
-        rows.append(AdpRow(int(r), int(l), float(mean), float(err)))
-    return rows
-
-
-def render_yen_plot(rows: list[YenRow], out: Path) -> None:
-    algos = ["Yen", "BPYen+Dijkstra", "BPYen+A*"]
+def _grouped_bar_data(
+    rows: list[YenRow], algos: list[str]
+) -> tuple[list[int], list[list[float]], list[list[float]]]:
     ks = sorted({r.k for r in rows})
-    colors = {"Yen": "#cc3333", "BPYen+Dijkstra": "#3366cc", "BPYen+A*": "#22aa55"}
+    means = [
+        [next((r.mean_ms for r in rows if r.algorithm == a and r.k == k), 0.0) for k in ks]
+        for a in algos
+    ]
+    errs = [
+        [next((r.err_ms for r in rows if r.algorithm == a and r.k == k), 0.0) for k in ks]
+        for a in algos
+    ]
+    return ks, means, errs
 
-    x_positions = list(range(len(ks)))
-    bar_width = 0.25
+
+def render_yen_main(rows: list[YenRow], out: Path) -> None:
+    """Log-scale bar chart over all three algorithms."""
+    algos = ["Yen", "BPYen+Dijkstra", "BPYen+A*"]
+    colors = {"Yen": "#cc3333", "BPYen+Dijkstra": "#3366cc", "BPYen+A*": "#22aa55"}
+    ks, means, errs = _grouped_bar_data(rows, algos)
 
     fig, ax = plt.subplots(figsize=(8, 5))
+    x_positions = list(range(len(ks)))
+    bar_width = 0.25
     for i, algo in enumerate(algos):
-        means = [
-            next((r.mean_ms for r in rows if r.algorithm == algo and r.k == k), 0.0)
-            for k in ks
-        ]
-        errs = [
-            next((r.err_ms for r in rows if r.algorithm == algo and r.k == k), 0.0)
-            for k in ks
-        ]
         offsets = [x + (i - 1) * bar_width for x in x_positions]
         ax.bar(
             offsets,
-            means,
+            means[i],
             bar_width,
             label=algo,
             color=colors[algo],
-            yerr=errs,
+            yerr=errs[i],
             capsize=4,
             edgecolor="black",
             linewidth=0.5,
         )
-        for off, m in zip(offsets, means):
+        for off, m in zip(offsets, means[i]):
             ax.text(off, m, f"{m:.0f}", ha="center", va="bottom", fontsize=8)
 
     ax.set_xticks(x_positions)
     ax.set_xticklabels([f"k = {k}" for k in ks])
     ax.set_ylabel("Mean time per call, ms/op (lower is better)")
     ax.set_title(
-        "Top-k shortest paths on Andorra OSM\n"
-        "(36,618 vertices / 67,354 edges; 3 random s→t pairs, seed = 7)"
+        "Top-k shortest paths on roadmap of Andorra"
     )
     ax.set_yscale("log")
     ax.set_ylim(bottom=10)
@@ -180,79 +136,44 @@ def render_yen_plot(rows: list[YenRow], out: Path) -> None:
     logger.info("wrote %s", out)
 
 
-def render_m2m_plot(rows: list[M2MRow], out: Path) -> None:
-    if not rows:
-        return
-    fig, ax = plt.subplots(figsize=(8, 4.5))
-    labels = ["master\n(pre-PR #1340)", "PR #1340 expected\n(single Dijkstra)"]
-    # The "after" number is not measured on this branch; ~10 ms is a generous
-    # upper bound for one Dijkstra over Andorra. Marked in the chart legend.
-    means = [rows[0].mean_ms, 10.0]
-    colors = ["#cc3333", "#22aa55"]
-    bars = ax.bar(labels, means, color=colors, edgecolor="black", linewidth=0.5)
-    ax.set_yscale("log")
+def render_yen_scaled(rows: list[YenRow], out: Path) -> None:
+    """Linear-scale variant comparing only the BoundedPrunedYen spur engines.
+
+    Error bars are intentionally omitted here: classical Yen's variance at k = 5
+    on Andorra dominates the main chart, and the scaled view exists to highlight
+    the Dijkstra-vs-A* difference at the mean level. The error bars remain
+    visible on the main chart for the full picture.
+    """
+    algos = ["BPYen+Dijkstra", "BPYen+A*"]
+    colors = {"BPYen+Dijkstra": "#3366cc", "BPYen+A*": "#22aa55"}
+    ks, means, _ = _grouped_bar_data(rows, algos)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    x_positions = list(range(len(ks)))
+    bar_width = 0.32
+    for i, algo in enumerate(algos):
+        offsets = [x + (i - 0.5) * bar_width for x in x_positions]
+        ax.bar(
+            offsets,
+            means[i],
+            bar_width,
+            label=algo,
+            color=colors[algo],
+            edgecolor="black",
+            linewidth=0.5,
+        )
+        for off, m in zip(offsets, means[i]):
+            ax.text(off, m, f"{m:.0f}", ha="center", va="bottom", fontsize=8)
+
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([f"k = {k}" for k in ks])
     ax.set_ylabel("Mean time per call, ms/op (lower is better)")
     ax.set_title(
-        "DijkstraManyToManyShortestPaths.getPaths(V) on Andorra OSM\n"
-        "(36,618 vertices; |S| = |T| = 2; single-shot measurement)"
+        "Top-k shortest paths on roadmap of Andorra (scaled, BoundedPrunedYen only)"
     )
-    ax.grid(True, axis="y", which="both", linestyle=":", alpha=0.4)
-    for bar, m in zip(bars, means):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            m,
-            f"{m:,.0f} ms" if m >= 1.0 else f"{m * 1000:.1f} µs",
-            ha="center",
-            va="bottom",
-            fontsize=9,
-        )
-    fig.text(
-        0.5,
-        0.02,
-        "PR #1340 cell is the expected post-merge value — not measured on this branch.",
-        ha="center",
-        fontsize=8,
-        style="italic",
-        color="#666",
-    )
-    fig.tight_layout(rect=(0, 0.05, 1, 1))
-    fig.savefig(out, dpi=120)
-    plt.close(fig)
-    logger.info("wrote %s", out)
-
-
-def render_adp_plot(rows: list[AdpRow], out: Path) -> None:
-    if not rows:
-        return
-    fig, ax = plt.subplots(figsize=(8, 4.5))
-    label = (
-        f"BFS-ball = 29, walk len = {rows[0].max_path_len}\n"
-        f"seed = 13, both pre/post #1341"
-    )
-    bars = ax.bar(
-        [label],
-        [rows[0].mean_ms],
-        yerr=[rows[0].err_ms],
-        color="#888888",
-        edgecolor="black",
-        linewidth=0.5,
-        capsize=6,
-    )
-    ax.set_ylabel("Mean time per call, ms/op")
-    ax.set_title(
-        "AllDirectedPaths non-simple on an Andorra BFS-ball subgraph\n"
-        "(small ball — neither #1341 nor C3 forward-pruning has room to register)"
-    )
+    ax.set_ylim(bottom=0)
     ax.grid(True, axis="y", linestyle=":", alpha=0.4)
-    for bar, m in zip(bars, [rows[0].mean_ms]):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            m,
-            f"{m:.3f} ms",
-            ha="center",
-            va="bottom",
-            fontsize=9,
-        )
+    ax.legend(loc="upper left")
     fig.tight_layout()
     fig.savefig(out, dpi=120)
     plt.close(fig)
@@ -275,16 +196,9 @@ def main() -> int:
     yen_rows = (
         parse_yen_txt(JMH_DIR / "yen.txt") if args.from_target else []
     ) or DEFAULT_YEN
-    m2m_rows = (
-        parse_m2m_txt(JMH_DIR / "m2m.txt") if args.from_target else []
-    ) or DEFAULT_M2M
-    adp_rows = (
-        parse_adp_txt(JMH_DIR / "adp.txt") if args.from_target else []
-    ) or DEFAULT_ADP
 
-    render_yen_plot(yen_rows, OUT_DIR / "k_shortest_andorra.png")
-    render_m2m_plot(m2m_rows, OUT_DIR / "m2m_get_paths_andorra.png")
-    render_adp_plot(adp_rows, OUT_DIR / "all_directed_paths_andorra.png")
+    render_yen_main(yen_rows, OUT_DIR / "k_shortest_andorra.png")
+    render_yen_scaled(yen_rows, OUT_DIR / "k_shortest_andorra_scaled.png")
 
     return 0
 
