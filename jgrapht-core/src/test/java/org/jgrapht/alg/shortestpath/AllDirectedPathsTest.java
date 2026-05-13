@@ -245,11 +245,13 @@ public class AllDirectedPathsTest
         graph.addEdge("U", "T");
         graph.addEdge("V", "U");
 
-        AllDirectedPaths<String, DefaultEdge> prunedAlg =
-            new AllDirectedPaths<>(graph, null, true);
-        AllDirectedPaths<String, DefaultEdge> defaultAlg = new AllDirectedPaths<>(graph);
+        // Default behaviour now applies forward pruning; explicitly construct a non-pruning
+        // instance so the same test covers both code paths.
+        AllDirectedPaths<String, DefaultEdge> prunedAlg = new AllDirectedPaths<>(graph);
+        AllDirectedPaths<String, DefaultEdge> unprunedAlg = new AllDirectedPaths<>(graph);
+        unprunedAlg.setForwardPruning(false);
 
-        for (AllDirectedPaths<String, DefaultEdge> alg : Arrays.asList(prunedAlg, defaultAlg)) {
+        for (AllDirectedPaths<String, DefaultEdge> alg : Arrays.asList(prunedAlg, unprunedAlg)) {
             List<GraphPath<String, DefaultEdge>> simplePaths = alg.getAllPaths("S", "T", true, 5);
             assertEquals(1, simplePaths.size());
             assertEquals(Arrays.asList("S", "A", "T"), simplePaths.get(0).getVertexList());
@@ -428,12 +430,12 @@ public class AllDirectedPathsTest
         graph.addEdge("A", "T");
         graph.addEdge("U", "T");
 
-        for (boolean useSandwichPrune : new boolean[] { false, true }) {
-            AllDirectedPaths<String, DefaultEdge> alg =
-                new AllDirectedPaths<>(graph, null, useSandwichPrune);
+        for (boolean forwardPruning : new boolean[] { false, true }) {
+            AllDirectedPaths<String, DefaultEdge> alg = new AllDirectedPaths<>(graph);
+            alg.setForwardPruning(forwardPruning);
             List<GraphPath<String, DefaultEdge>> paths =
                 alg.getAllPaths(Set.of("S1", "S2"), Set.of("T"), true, 5);
-            assertEquals(1, paths.size(), "useSandwichPrune=" + useSandwichPrune);
+            assertEquals(1, paths.size(), "forwardPruning=" + forwardPruning);
             assertEquals(Arrays.asList("S1", "A", "T"), paths.get(0).getVertexList());
         }
     }
@@ -453,11 +455,12 @@ public class AllDirectedPathsTest
         graph.addEdge("U", "T");
         graph.addEdge("V", "U");
 
-        for (boolean useSandwichPrune : new boolean[] { false, true }) {
+        for (boolean forwardPruning : new boolean[] { false, true }) {
+            AllDirectedPaths<String, DefaultEdge> alg = new AllDirectedPaths<>(graph);
+            alg.setForwardPruning(forwardPruning);
             List<GraphPath<String, DefaultEdge>> paths =
-                new AllDirectedPaths<>(graph, null, useSandwichPrune)
-                    .getAllPaths(Set.of("S"), Set.of("T"), true, null);
-            assertEquals(1, paths.size(), "useSandwichPrune=" + useSandwichPrune);
+                alg.getAllPaths(Set.of("S"), Set.of("T"), true, null);
+            assertEquals(1, paths.size(), "forwardPruning=" + forwardPruning);
             assertEquals(Arrays.asList("S", "A", "T"), paths.get(0).getVertexList());
         }
     }
@@ -474,11 +477,12 @@ public class AllDirectedPathsTest
         graph.addVertex("U");
         graph.addEdge("U", "S");
 
-        for (boolean useSandwichPrune : new boolean[] { false, true }) {
+        for (boolean forwardPruning : new boolean[] { false, true }) {
+            AllDirectedPaths<String, DefaultEdge> alg = new AllDirectedPaths<>(graph);
+            alg.setForwardPruning(forwardPruning);
             List<GraphPath<String, DefaultEdge>> paths =
-                new AllDirectedPaths<>(graph, null, useSandwichPrune)
-                    .getAllPaths(Set.of("S"), Set.of("S"), true, 5);
-            assertEquals(1, paths.size(), "useSandwichPrune=" + useSandwichPrune);
+                alg.getAllPaths(Set.of("S"), Set.of("S"), true, 5);
+            assertEquals(1, paths.size(), "forwardPruning=" + forwardPruning);
             assertEquals(0, paths.get(0).getLength());
         }
     }
@@ -487,10 +491,9 @@ public class AllDirectedPathsTest
     public void testDenseStronglyConnectedLossCase()
     {
         // Loss case shape: small dense strongly-connected digraph where every vertex is
-        // both forward-reachable from source and backward-reachable from target. The
-        // sandwich prune cannot drop anything here. Tests that enabling the prune does
-        // not change the result on this shape — bounded overhead is OK; wrong answers
-        // are not.
+        // both forward-reachable from source and backward-reachable from target. Forward
+        // pruning cannot drop anything here. Tests that enabling it does not change the
+        // result on this shape — bounded overhead is OK; wrong answers are not.
         int n = 6;
         DefaultDirectedGraph<Integer, DefaultEdge> graph =
             new DefaultDirectedGraph<>(DefaultEdge.class);
@@ -507,13 +510,14 @@ public class AllDirectedPathsTest
         int maxLength = 3;
         List<List<Integer>> expected = bruteForceSimplePaths(graph, 0, n - 1, maxLength);
 
-        for (boolean useSandwichPrune : new boolean[] { false, true }) {
+        for (boolean forwardPruning : new boolean[] { false, true }) {
+            AllDirectedPaths<Integer, DefaultEdge> alg = new AllDirectedPaths<>(graph);
+            alg.setForwardPruning(forwardPruning);
             List<GraphPath<Integer, DefaultEdge>> actual =
-                new AllDirectedPaths<>(graph, null, useSandwichPrune)
-                    .getAllPaths(0, n - 1, true, maxLength);
+                alg.getAllPaths(0, n - 1, true, maxLength);
             assertEquals(
                 new HashSet<>(expected), vertexListsAsSet(actual),
-                "useSandwichPrune=" + useSandwichPrune);
+                "forwardPruning=" + forwardPruning);
         }
     }
 
@@ -541,21 +545,22 @@ public class AllDirectedPathsTest
             Set<List<Integer>> expectedNonSimple =
                 new HashSet<>(bruteForceWalks(graph, source, target, maxLength));
 
-            for (boolean useSandwichPrune : new boolean[] { false, true }) {
-                AllDirectedPaths<Integer, DefaultEdge> alg =
-                    new AllDirectedPaths<>(graph, null, useSandwichPrune);
+            for (boolean forwardPruning : new boolean[] { false, true }) {
+                AllDirectedPaths<Integer, DefaultEdge> alg = new AllDirectedPaths<>(graph);
+                alg.setForwardPruning(forwardPruning);
                 Set<List<Integer>> actualSimple = vertexListsAsSet(
                     alg.getAllPaths(source, target, true, maxLength));
                 assertEquals(
                     expectedSimple, actualSimple,
-                    "simple-mode multiset mismatch seed=" + seed + " prune=" + useSandwichPrune);
+                    "simple-mode multiset mismatch seed=" + seed
+                        + " forwardPruning=" + forwardPruning);
 
                 Set<List<Integer>> actualNonSimple = vertexListsAsSet(
                     alg.getAllPaths(source, target, false, maxLength));
                 assertEquals(
                     expectedNonSimple, actualNonSimple,
-                    "non-simple-mode multiset mismatch seed=" + seed + " prune="
-                        + useSandwichPrune);
+                    "non-simple-mode multiset mismatch seed=" + seed
+                        + " forwardPruning=" + forwardPruning);
             }
         }
     }

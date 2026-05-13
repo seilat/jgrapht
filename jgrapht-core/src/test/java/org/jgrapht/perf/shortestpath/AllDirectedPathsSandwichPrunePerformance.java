@@ -27,22 +27,22 @@ import java.util.concurrent.*;
 
 /**
  * JMH benchmark for {@link AllDirectedPaths} preprocessing on workloads that target the
- * opt-in sandwich prune in {@code edgeMinDistancesBackwards}.
+ * forward-pruning step in {@code edgeMinDistancesBackwards}.
  *
  * <p>
- * Two cell families, each parameterised over {@code useSandwichPrune} so the cost of the
- * opt-in prune is directly comparable to the historical preprocessing path in the same JVM:
+ * Two cell families, each parameterised over {@code forwardPruning} so the cost of the
+ * optimisation is directly comparable to the historical preprocessing path in the same JVM:
  * <ul>
  *   <li><b>Win case ({@code testWinCase}).</b> Forward chain of {@code chainLen} vertices
  *       {@code 0 → 1 → … → chainLen-1 = T} plus a {@code gardenSize}-vertex
  *       source-disconnected garden whose every vertex has an edge into {@code T}. Simple-paths
  *       mode, {@code maxPathLength = chainLen + 5}. The garden is reachable backwards from
- *       {@code T} but no garden vertex is reachable forwards from the source, so when the
- *       prune is off the backward sweep marks every garden vertex.</li>
+ *       {@code T} but no garden vertex is reachable forwards from the source, so when forward
+ *       pruning is off the backward sweep marks every garden vertex.</li>
  *   <li><b>Loss case ({@code testLossCase}).</b> Small dense strongly-connected digraph where
- *       {@code F = B = V}, so the forward BFS is pure overhead and the sandwich condition
- *       never drops anything. Bounds the regression cost when the prune is enabled on a graph
- *       it cannot help.</li>
+ *       {@code F = B = V}, so the forward BFS is pure overhead and the prune never drops
+ *       anything. Bounds the regression cost when forward pruning is enabled on a graph it
+ *       cannot help.</li>
  * </ul>
  *
  * @author Shai Eilat
@@ -75,7 +75,7 @@ public class AllDirectedPathsSandwichPrunePerformance
         @Param({ "20" })
         int chainLen;
         @Param({ "false", "true" })
-        boolean useSandwichPrune;
+        boolean forwardPruning;
 
         DefaultDirectedGraph<Integer, DefaultEdge> graph;
         AllDirectedPaths<Integer, DefaultEdge> algorithm;
@@ -98,7 +98,8 @@ public class AllDirectedPathsSandwichPrunePerformance
                 int gardenVertex = chainLen + g;
                 graph.addEdge(gardenVertex, targetVertex);
             }
-            algorithm = new AllDirectedPaths<>(graph, null, useSandwichPrune);
+            algorithm = new AllDirectedPaths<>(graph);
+            algorithm.setForwardPruning(forwardPruning);
             source = 0;
             target = targetVertex;
             maxPathLength = chainLen + 5;
@@ -113,7 +114,7 @@ public class AllDirectedPathsSandwichPrunePerformance
         @Param({ "3" })
         int maxPathLength;
         @Param({ "false", "true" })
-        boolean useSandwichPrune;
+        boolean forwardPruning;
 
         DefaultDirectedGraph<Integer, DefaultEdge> graph;
         AllDirectedPaths<Integer, DefaultEdge> algorithm;
@@ -134,7 +135,8 @@ public class AllDirectedPathsSandwichPrunePerformance
                     }
                 }
             }
-            algorithm = new AllDirectedPaths<>(graph, null, useSandwichPrune);
+            algorithm = new AllDirectedPaths<>(graph);
+            algorithm.setForwardPruning(forwardPruning);
             source = 0;
             target = n - 1;
         }

@@ -42,12 +42,14 @@ public class AllDirectedPaths<V, E>
     private final PathValidator<V, E> pathValidator;
 
     /**
-     * Whether to apply the opt-in sandwich prune in preprocessing. When {@code true}, a forward
-     * BFS from the source set is run before the backward edge-decoration sweep and edges that
-     * cannot lie on any source-to-target walk within the budget are dropped. When {@code false}
-     * (the default), the algorithm behaves identically to releases prior to the prune.
+     * Whether to apply the forward-pruning preprocessing step. When {@code true} (the default), a
+     * forward BFS from the source set is run before the backward edge-decoration sweep and edges
+     * that cannot lie on any source-to-target walk within the budget are dropped. When
+     * {@code false}, the historical backward-only preprocessing behaviour is used.
+     *
+     * @see #setForwardPruning(boolean)
      */
-    private final boolean useSandwichPrune;
+    private boolean forwardPruning = true;
 
     /**
      * Create a new instance.
@@ -57,7 +59,7 @@ public class AllDirectedPaths<V, E>
      */
     public AllDirectedPaths(Graph<V, E> graph)
     {
-        this(graph, null, false);
+        this(graph, null);
     }
 
     /**
@@ -73,35 +75,46 @@ public class AllDirectedPaths<V, E>
      */
     public AllDirectedPaths(Graph<V, E> graph, PathValidator<V, E> pathValidator)
     {
-        this(graph, pathValidator, false);
+        this.graph = GraphTests.requireDirected(graph);
+        this.pathValidator = pathValidator;
     }
 
     /**
-     * Create a new instance with given {@code pathValidator} and {@code useSandwichPrune}.
+     * Configure whether the preprocessing step applies the forward-pruning optimisation.
      *
      * <p>
-     * When {@code useSandwichPrune} is {@code true} the preprocessing step first runs a forward
+     * When forward pruning is enabled (the default), {@link #getAllPaths} first runs a forward
      * BFS from the source set and uses the result to drop edges whose source endpoint is not
      * reachable from any source within the bound, or whose forward-plus-backward length exceeds
      * the bound. The prune is exact &mdash; it never drops an edge that could lie on a feasible
      * source-to-target walk &mdash; and can be a large win when a substantial fraction of the
      * graph is backward-reachable from the targets but not forward-reachable from the sources.
-     * On graphs where the sandwich condition never fires (e.g. small dense strongly-connected
-     * digraphs), enabling the prune adds the cost of one extra {@code O(V + E)} BFS per
-     * {@code getAllPaths} call.
+     * On graphs where the prune never fires (e.g. small dense strongly-connected digraphs), the
+     * optimisation adds the cost of one extra {@code O(V + E)} BFS per {@code getAllPaths}
+     * call.
      * </p>
      *
-     * @param graph the input graph
-     * @param pathValidator validator for computed paths; may be null
-     * @param useSandwichPrune whether to apply the opt-in sandwich prune in preprocessing
-     * @throws IllegalArgumentException if the graph is not directed
+     * <p>
+     * Setting forward pruning to {@code false} recovers the historical preprocessing behaviour
+     * exactly &mdash; useful when the cost of the extra BFS is known to dominate.
+     * </p>
+     *
+     * @param forwardPruning whether to apply the forward-pruning preprocessing step
      */
-    public AllDirectedPaths(
-        Graph<V, E> graph, PathValidator<V, E> pathValidator, boolean useSandwichPrune)
+    public void setForwardPruning(boolean forwardPruning)
     {
-        this.graph = GraphTests.requireDirected(graph);
-        this.pathValidator = pathValidator;
-        this.useSandwichPrune = useSandwichPrune;
+        this.forwardPruning = forwardPruning;
+    }
+
+    /**
+     * Whether the preprocessing step currently applies the forward-pruning optimisation.
+     *
+     * @return {@code true} if forward pruning is enabled
+     * @see #setForwardPruning(boolean)
+     */
+    public boolean isForwardPruning()
+    {
+        return forwardPruning;
     }
 
     /**
@@ -151,12 +164,11 @@ public class AllDirectedPaths<V, E>
             return Collections.emptyList();
         }
 
-        // Decorate the edges with the minimum path lengths through them. When the opt-in
-        // sandwich prune is enabled, first compute forward distances from the source set and
-        // use them to drop edges that cannot lie on any feasible source -> target walk within
-        // the budget. When disabled (the default), behave identically to the historical
-        // backward-only sweep.
-        Map<V, Integer> vertexMinDistancesFromSources = useSandwichPrune
+        // Decorate the edges with the minimum path lengths through them. When forward pruning
+        // is enabled (the default), first compute forward distances from the source set and use
+        // them to drop edges that cannot lie on any feasible source -> target walk within the
+        // budget. When disabled, behave identically to the historical backward-only sweep.
+        Map<V, Integer> vertexMinDistancesFromSources = forwardPruning
             ? vertexMinDistancesForwards(sourceVertices, maxPathLength) : null;
         Map<E, Integer> edgeMinDistancesFromTargets = edgeMinDistancesBackwards(
             targetVertices, vertexMinDistancesFromSources, maxPathLength);
