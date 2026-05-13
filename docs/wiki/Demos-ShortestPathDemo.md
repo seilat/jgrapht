@@ -304,10 +304,15 @@ uses Contraction Hierarchy pre-computation.
 1. Benchmarks for the many-to-many the shortest paths algorithms use a constant number
 of source vertices (100) and a variable number of targets.
 
-1. Top-*k* shortest path benchmarks sweep over `k` and compare `YenKShortestPath`,
-`BoundedPrunedYenKShortestPath` with `DijkstraSpurEngine`, and the same with
-`AStarSpurEngine` over a fixed set of randomly sampled source-sink pairs. All
-three algorithms return the same ordered path sequence.
+1. Top-*k* shortest path benchmarks sweep over `k` on two graph families &mdash;
+the Andorra roadmap above and a dense `G(n=500, p=0.3)` random graph &mdash; and
+compare five variants: classical `YenKShortestPath`, `BoundedPrunedYenKShortestPath`
+with `DijkstraSpurEngine` (bounded-prune layer only), the same with `AStarSpurEngine`
+and `setBoundedPruning(false)` (A* spur engine only, no bounded prune),
+`BoundedPrunedYenKShortestPath` with `AStarSpurEngine` (both), and
+`EppsteinKShortestPath`. Yen-family variants all return the same ordered simple-path
+sequence; Eppstein returns the *k* lowest-weight walks (loops allowed) and is included
+for reference rather than direct comparison.
 
 ### Benchmark results for random graphs
 
@@ -346,3 +351,9 @@ three algorithms return the same ordered path sequence.
 ![](./images/k_shortest_andorra.png)
 
 ![](./images/k_shortest_andorra_scaled.png)
+
+### Benchmark results for top-*k* shortest paths on dense G(n,p) random graphs
+
+![](./images/k_shortest_gnp.png)
+
+![](./images/k_shortest_gnp_scaled.png)

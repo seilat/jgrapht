@@ -48,7 +48,7 @@ class AndorraBenchmarkRunner
     @Test
     void runYen() throws Exception
     {
-        runBenchAverageTime(AndorraBoundedPrunedYenBench.class.getSimpleName(), "yen");
+        runBenchAverageTime(KShortestPathBench.class.getSimpleName(), "yen");
     }
 
     @Test

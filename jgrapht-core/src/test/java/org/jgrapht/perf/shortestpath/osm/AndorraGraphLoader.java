@@ -20,7 +20,7 @@ package org.jgrapht.perf.shortestpath.osm;
 import org.jgrapht.Graph;
 import org.jgrapht.alg.interfaces.AStarAdmissibleHeuristic;
 import org.jgrapht.graph.DefaultWeightedEdge;
-import org.jgrapht.graph.DirectedWeightedMultigraph;
+import org.jgrapht.graph.SimpleDirectedWeightedGraph;
 import org.jgrapht.util.SupplierUtil;
 
 import java.io.BufferedReader;
@@ -78,8 +78,11 @@ public final class AndorraGraphLoader
     public static AndorraData load()
     {
         double[][] coords = readNodes();
-        DirectedWeightedMultigraph<Integer, DefaultWeightedEdge> graph =
-            new DirectedWeightedMultigraph<>(DefaultWeightedEdge.class);
+        // SimpleDirectedWeightedGraph so EppsteinKShortestPath can consume the result;
+        // the preprocessor in scripts/andorra_to_csv.py already deduplicates parallel
+        // edges so loading does not violate the simple-graph contract.
+        SimpleDirectedWeightedGraph<Integer, DefaultWeightedEdge> graph =
+            new SimpleDirectedWeightedGraph<>(DefaultWeightedEdge.class);
         graph.setVertexSupplier(SupplierUtil.createIntegerSupplier());
         for (int i = 0; i < coords.length; i++) {
             graph.addVertex(i);

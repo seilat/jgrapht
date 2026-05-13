@@ -128,6 +128,19 @@ public class BoundedPrunedYenKShortestPath<V, E>
     private final Graph<V, E> graph;
     private final SpurShortestPathEngine<V, E> engine;
 
+    /**
+     * Whether to apply the bounded-prune layer that defers spur-task materialisation behind
+     * a lower-bound certificate. When {@code true} (the default), the algorithm runs as
+     * described in the class-level javadoc. When {@code false}, every spur task is
+     * materialised eagerly and the algorithm degrades to classical Yen with whatever spur
+     * back-end was supplied to the constructor &mdash; useful as a controlled comparison
+     * point when benchmarking the spur engine's contribution in isolation from the
+     * bounded-prune layer.
+     *
+     * @see #setBoundedPruning(boolean)
+     */
+    private boolean boundedPruning = true;
+
     private final Stats stats = new Stats();
 
     /**
@@ -156,6 +169,36 @@ public class BoundedPrunedYenKShortestPath<V, E>
     {
         this.graph = Objects.requireNonNull(graph, "Graph cannot be null!");
         this.engine = Objects.requireNonNull(engine, "Engine cannot be null!");
+    }
+
+    /**
+     * Configure whether the bounded-prune layer applies during {@link #getPaths}.
+     *
+     * <p>
+     * The default is {@code true}, which matches the algorithm name and the original
+     * publication. Setting it to {@code false} disables only the lower-bound deferral
+     * layer: every candidate spur is materialised through the configured
+     * {@link SpurShortestPathEngine} immediately, exactly as classical Yen would. This is
+     * useful for benchmarking the contribution of the bounded-prune layer in isolation
+     * from the spur engine (i.e. for an apples-to-apples comparison of
+     * {@code Yen + DijkstraSpur} vs {@code Yen + AStarSpur}).
+     *
+     * @param boundedPruning whether to apply the bounded-prune layer
+     */
+    public void setBoundedPruning(boolean boundedPruning)
+    {
+        this.boundedPruning = boundedPruning;
+    }
+
+    /**
+     * Whether the bounded-prune layer is currently enabled.
+     *
+     * @return {@code true} if the bounded-prune layer is enabled
+     * @see #setBoundedPruning(boolean)
+     */
+    public boolean isBoundedPruning()
+    {
+        return boundedPruning;
     }
 
     @Override
@@ -214,9 +257,13 @@ public class BoundedPrunedYenKShortestPath<V, E>
             first, /*pathIndex=*/0, firstDeviationIndex, accepted, reverseDistances, taskHeap);
 
         while (accepted.size() < k) {
-            // Materialize tasks while their LB might beat the best candidate.
+            // Materialize tasks. With the bounded-prune layer enabled (the default), tasks are
+            // only materialised while their lower bound could still beat the best candidate;
+            // when the layer is disabled, every task is drained unconditionally so the
+            // algorithm degrades to classical Yen with the configured spur engine.
             while (!taskHeap.isEmpty()
-                && (candHeap.isEmpty() || taskHeap.peek().lowerBound < candHeap.peek().cost
+                && (!boundedPruning || candHeap.isEmpty()
+                    || taskHeap.peek().lowerBound < candHeap.peek().cost
                     || approxEq(taskHeap.peek().lowerBound, candHeap.peek().cost)))
             {
                 SpurTask t = taskHeap.poll();
