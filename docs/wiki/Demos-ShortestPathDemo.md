@@ -397,6 +397,8 @@ The A\* spur engine uses the reverse-distance heuristic (admissible by
 construction), so the result sequence is identical to classical Yen. Error
 bars are wide because `Cnt = 3`; the trend is robust nonetheless.
 
+![](./images/k_shortest_andorra.png)
+
 **`DijkstraManyToManyShortestPaths.getPaths(V)` on Andorra**
 
 `getManyToManyPaths(S, T)` followed by `getPaths(first(S))`. The current
@@ -414,6 +416,8 @@ The *after* column is not measured on this branch &mdash; PR #1340 is still
 open upstream as of 2026-05-12. Once merged, re-running the same harness fills
 the cell.
 
+![](./images/m2m_get_paths_andorra.png)
+
 **`AllDirectedPaths` non-simple mode on an Andorra BFS-ball subgraph**
 
 `bfsRadius` = 6, `maxPathLen` = 6, single random anchor (seed = 13). The
@@ -429,18 +433,28 @@ size cap to force a denser subgraph; the harness is parametric so only the
 | master (Andorra, BFS-ball = 29, walk len 6, seed = 13)  | 0.003 ± 0.001      |
 
 PR #1341 (`ArrayDeque` + drop unused `visited` set) was merged into upstream
-master as commit `3a805397ee` on 2026-05-12, mid-session. The figure above was
-measured on the pre-#1341 maintenance branch (forked from upstream commit
-`3cd97a0391`), so it is a *before* baseline; the corresponding *after* number
-needs a rebase + re-run.
+master as commit `3a805397ee` on 2026-05-12. The same harness was re-run on
+the post-#1341 maintenance branch and reproduced the same `0.003 ± 0.001 ms/op`
+figure: the 29-vertex ball completes too quickly for the BFS-queue
+data-structure swap to register. Both #1341 and the C3 forward-pruning
+optimisation target denser, layered subgraphs &mdash; the carving heuristic
+needs `bfsRadius` ≥ 9 and a less aggressive size cap before either change
+shows up. The harness is parametric, so the follow-up is a one-line edit to
+`AndorraAllDirectedPathsNonSimpleBench.AndorraAdpState` plus a re-run.
+
+![](./images/all_directed_paths_andorra.png)
 
 > **Reproducibility.** All inputs are committed:
 > `scripts/andorra_to_csv.py` (Geofabrik GPKG → edges CSV),
+> `scripts/render_andorra_plots.py` (JMH text summaries → PNGs under
+> `docs/wiki/images/`),
 > `jgrapht-core/src/test/resources/perf/osm/andorra-edges*.csv.gz` (36,618
 > vertices, 67,354 directed edges, weights in metres),
 > `AndorraGraphLoader.java` (CSV → graph + Haversine heuristic),
 > `AndorraBoundedPrunedYenBench.java`,
 > `AndorraDijkstraManyToManyGetPathsBench.java`,
 > `AndorraAllDirectedPathsNonSimpleBench.java`,
-> `AndorraBenchmarkRunner.java`. To re-run any cell:
+> `AndorraBenchmarkRunner.java`. To re-run a JMH cell:
 > `mvn -pl jgrapht-core test -Dtest='AndorraBenchmarkRunner#run<Yen|M2M|ADP>' -DfailIfNoTests=false`.
+> To re-render the PNGs after a fresh JMH run:
+> `python scripts/render_andorra_plots.py --from-target`.
