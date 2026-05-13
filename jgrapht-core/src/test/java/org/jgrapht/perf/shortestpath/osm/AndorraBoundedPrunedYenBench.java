@@ -66,8 +66,8 @@ import java.util.concurrent.TimeUnit;
     "--add-exports=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm=ALL-UNNAMED",
     "--add-exports=org.jgrapht.core/org.jgrapht.perf.shortestpath.osm.jmh_generated=ALL-UNNAMED"
 })
-@Warmup(iterations = 2, time = 5)
-@Measurement(iterations = 3, time = 10)
+@Warmup(iterations = 3, time = 5)
+@Measurement(iterations = 5, time = 10)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 public class AndorraBoundedPrunedYenBench
 {
@@ -106,10 +106,10 @@ public class AndorraBoundedPrunedYenBench
     @State(Scope.Benchmark)
     public static class AndorraYenState
     {
-        // k=1 is just the underlying shortest-path engine; k=5 exercises the
-        // bounded-prune candidate heap. Higher k values keep classical Yen running
-        // for >30 s per query on Andorra, so we cap here.
-        @Param({ "1", "5" })
+        // k=1 is just the underlying shortest-path engine (Dijkstra-or-A*);
+        // k=5 exercises the candidate heap; k=25 is where bounded pruning has
+        // amortised room to win.
+        @Param({ "1", "5", "25" })
         int k;
 
         AndorraGraphLoader.AndorraData data;
@@ -121,12 +121,13 @@ public class AndorraBoundedPrunedYenBench
             data = AndorraGraphLoader.load();
             int n = data.graph.vertexSet().size();
             Random rnd = new Random(7L);
-            // 3 queries: classical Yen at k=5 averages ~5–10 s per query on
-            // Andorra, so 3 queries per @Benchmark invocation keeps each JMH
-            // iteration around 30 s (and lets BoundedPrunedYen still show its
-            // amortised advantage).
-            queries = new ArrayList<>(3);
-            while (queries.size() < 3) {
+            // 10 queries per @Benchmark invocation: keeps error bars tight at
+            // k = 1 and k = 5 while letting JMH overrun the 10 s iteration
+            // window naturally at k = 25 (classical Yen averages ~5–10 s per
+            // query at k = 25 on Andorra). With 5 measurement iterations the
+            // total wall budget stays under ~30 min across all 9 cells.
+            queries = new ArrayList<>(10);
+            while (queries.size() < 10) {
                 int src = rnd.nextInt(n);
                 int dst = rnd.nextInt(n);
                 if (src != dst) {

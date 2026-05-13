@@ -39,7 +39,6 @@ import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -82,10 +81,22 @@ public class AndorraAllDirectedPathsNonSimpleBench
     @State(Scope.Benchmark)
     public static class AndorraAdpState
     {
-        @Param({ "6" })
+        /**
+         * BFS radius from the urban anchor. OSM road graphs are very sparse
+         * forward-wise (typical out-degree 1.3-1.5), so the ball grows roughly
+         * as {@code 1.4^radius}; the committed value of 40 with the 1500-vertex
+         * size cap reliably yields ~1000 vertices around Andorra la Vella.
+         */
+        @Param({ "40" })
         int bfsRadius;
-        @Param({ "6" })
+
+        /** Bound on walk length (edges). */
+        @Param({ "10" })
         int maxPathLen;
+
+        // Centre of Andorra la Vella (capital, densest part of the country's road network).
+        private static final double ANCHOR_LAT = 42.5063;
+        private static final double ANCHOR_LON = 1.5218;
 
         AndorraGraphLoader.AndorraData data;
         AsSubgraph<Integer, DefaultWeightedEdge> subgraph;
@@ -96,77 +107,86 @@ public class AndorraAllDirectedPathsNonSimpleBench
         public void load()
         {
             data = AndorraGraphLoader.load();
-            int n = data.graph.vertexSet().size();
-            Random rnd = new Random(13L);
 
-            // best-effort search: pick the first anchor whose BFS ball is non-trivial
-            // and yields any reachable target at least 2 hops away. Sparse rural roads
-            // dominate Andorra, so tight size brackets fail too often.
-            int bestSize = -1;
-            Integer bestAnchor = null;
-            Set<Integer> bestBall = null;
-            Integer bestSink = null;
-            int bestHops = -1;
-            for (int attempt = 0; attempt < 400; attempt++) {
-                Integer anchor = rnd.nextInt(n);
-                Set<Integer> ball = bfsBall(anchor, bfsRadius);
-                if (ball.size() < 8) {
-                    continue;
-                }
-                Integer cand = null;
-                int candHops = -1;
-                for (Integer v : ball) {
-                    if (!v.equals(anchor) && data.graph.outDegreeOf(v) > 0) {
-                        int h = bfsHops(anchor, v, bfsRadius);
-                        if (h > candHops) {
-                            candHops = h;
-                            cand = v;
-                        }
-                    }
-                }
-                if (cand == null || candHops < 2) {
-                    continue;
-                }
-                // prefer a "richer" subgraph (more vertices) but cap so non-simple
-                // enumeration stays under a few seconds per query.
-                if (ball.size() <= 1500 && ball.size() > bestSize) {
-                    bestSize = ball.size();
-                    bestAnchor = anchor;
-                    bestBall = ball;
-                    bestSink = cand;
-                    bestHops = candHops;
-                    if (ball.size() >= 120 && candHops >= 3) {
-                        // good enough, stop early
-                        break;
-                    }
-                }
-            }
-            if (bestBall == null) {
+            // Step 1: pick the graph vertex closest to the Andorra la Vella anchor.
+            int anchor = nearestNode(ANCHOR_LAT, ANCHOR_LON);
+
+            // Step 2: BFS ball from the anchor at the requested radius. The walk-enumeration
+            // cost is super-linear in the ball size; we cap at 1500 vertices so a single
+            // @Benchmark call stays under a few seconds even at maxPathLen = 8.
+            Set<Integer> ball = boundedBfsBall(anchor, bfsRadius, /* sizeCap= */ 1500);
+            if (ball.size() < 50) {
                 throw new IllegalStateException(
-                    "could not carve any Andorra subgraph after 400 anchor attempts");
+                    "urban Andorra ball too small (" + ball.size() + " vertices); the OSM "
+                        + "extract may be missing the capital, or the anchor coordinates need "
+                        + "to be updated");
             }
-            subgraph = new AsSubgraph<>(data.graph, bestBall);
-            source = bestAnchor;
-            sink = bestSink;
-            // log via a sentinel field; JMH suppresses System.out during measurement
-            // but the trial setup phase prints to surefire output.
+
+            // Step 3: choose a sink at maximum BFS-hop distance from the anchor inside the ball.
+            // That deepest reachable vertex tends to expand the walk count the most.
+            int chosenSink = -1;
+            int bestHops = -1;
+            for (Integer v : ball) {
+                if (v.intValue() == anchor || data.graph.outDegreeOf(v) == 0) {
+                    continue;
+                }
+                int h = bfsHops(anchor, v, bfsRadius);
+                if (h > bestHops) {
+                    bestHops = h;
+                    chosenSink = v;
+                }
+            }
+            if (chosenSink < 0) {
+                throw new IllegalStateException(
+                    "urban Andorra ball has no reachable non-anchor vertex with out-degree > 0");
+            }
+
+            subgraph = new AsSubgraph<>(data.graph, ball);
+            source = anchor;
+            sink = chosenSink;
+            // Setup runs once per trial; JMH propagates the stdout to the surefire log.
             System.out.printf(
-                "[AndorraAdpState] ball=%d, src=%d sink=%d hops=%d radius=%d maxPathLen=%d%n",
-                bestBall.size(), bestAnchor, bestSink, bestHops, bfsRadius, maxPathLen);
+                "[AndorraAdpState] anchor=%d (%.4f, %.4f) ball=%d sink=%d hops=%d radius=%d "
+                    + "maxPathLen=%d%n",
+                anchor, data.nodeLatLon[anchor][0], data.nodeLatLon[anchor][1], ball.size(),
+                chosenSink, bestHops, bfsRadius, maxPathLen);
         }
 
-        private Set<Integer> bfsBall(Integer start, int radius)
+        private int nearestNode(double targetLat, double targetLon)
+        {
+            int best = -1;
+            double bestDist = Double.MAX_VALUE;
+            double[][] coords = data.nodeLatLon;
+            for (int v = 0; v < coords.length; v++) {
+                double[] c = coords[v];
+                double dLat = c[0] - targetLat;
+                double dLon = c[1] - targetLon;
+                // Squared lat/lon distance is enough for nearest-vertex selection inside a
+                // single small country; Haversine would just slow the linear scan down.
+                double d = dLat * dLat + dLon * dLon;
+                if (d < bestDist) {
+                    bestDist = d;
+                    best = v;
+                }
+            }
+            return best;
+        }
+
+        private Set<Integer> boundedBfsBall(Integer start, int radius, int sizeCap)
         {
             Set<Integer> visited = new HashSet<>();
             ArrayDeque<int[]> q = new ArrayDeque<>();
             q.add(new int[] { start, 0 });
             visited.add(start);
-            while (!q.isEmpty()) {
+            while (!q.isEmpty() && visited.size() < sizeCap) {
                 int[] head = q.poll();
                 if (head[1] == radius) {
                     continue;
                 }
                 for (Integer nbr : Graphs.successorListOf(data.graph, head[0])) {
+                    if (visited.size() >= sizeCap) {
+                        break;
+                    }
                     if (visited.add(nbr)) {
                         q.add(new int[] { nbr, head[1] + 1 });
                     }

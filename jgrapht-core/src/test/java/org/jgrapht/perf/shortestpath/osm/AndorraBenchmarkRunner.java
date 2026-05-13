@@ -71,7 +71,7 @@ class AndorraBenchmarkRunner
     private static void runBenchAverageTime(String benchSimpleName, String outBase)
         throws RunnerException, java.io.IOException
     {
-        runJmh(benchSimpleName, outBase, /*warmupIters=*/ 2, /*measureIters=*/ 3);
+        runJmh(benchSimpleName, outBase, /*warmupIters=*/ 3, /*measureIters=*/ 5);
     }
 
     private static void runBenchSingleShot(String benchSimpleName, String outBase)

@@ -44,15 +44,18 @@ class YenRow:
 
 # Default numbers measured on the maintenance branch (post-#1341 master) on
 # AMD x86-64 / 32 GB DDR4 / Windows 11 Pro / Eclipse Temurin JDK 21.0.9 /
-# JMH 1.37 with 3 random source-sink pairs (seed = 7), 2 warm-up iterations of
-# 5 s and 3 measurement iterations of 10 s.
+# JMH 1.37 with 10 random source-sink pairs (seed = 7), 3 warm-up iterations
+# of 5 s and 5 measurement iterations of 10 s.
 DEFAULT_YEN: list[YenRow] = [
-    YenRow("Yen", 1, 548.129, 543.865),
-    YenRow("Yen", 5, 2538.576, 3050.256),
-    YenRow("BPYen+Dijkstra", 1, 67.233, 51.000),
-    YenRow("BPYen+Dijkstra", 5, 1578.425, 283.738),
-    YenRow("BPYen+A*", 1, 26.897, 8.300),
-    YenRow("BPYen+A*", 5, 411.600, 436.627),
+    YenRow("Yen", 1, 3174.021, 1143.997),
+    YenRow("Yen", 5, 11563.934, 3211.048),
+    YenRow("Yen", 25, 45808.216, 9405.612),
+    YenRow("BPYen+Dijkstra", 1, 281.212, 189.018),
+    YenRow("BPYen+Dijkstra", 5, 11398.873, 4267.508),
+    YenRow("BPYen+Dijkstra", 25, 36748.482, 6818.482),
+    YenRow("BPYen+A*", 1, 114.127, 41.410),
+    YenRow("BPYen+A*", 5, 2048.124, 590.179),
+    YenRow("BPYen+A*", 25, 10719.501, 2978.727),
 ]
 
 
