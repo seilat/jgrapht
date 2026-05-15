@@ -20,6 +20,7 @@ package org.jgrapht.perf.shortestpath;
 import org.jgrapht.Graph;
 import org.jgrapht.GraphPath;
 import org.jgrapht.alg.interfaces.KShortestPathAlgorithm;
+import org.jgrapht.alg.shortestpath.EppsteinKShortestPath;
 import org.jgrapht.alg.shortestpath.YenAStarKShortestPath;
 import org.jgrapht.alg.shortestpath.YenKShortestPath;
 import org.jgrapht.alg.util.Pair;
@@ -49,14 +50,22 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * JMH benchmark isolating the impact of A* (with reverse-distance heuristic) on Yen's spur step.
- * Compares {@link YenKShortestPath} (Dijkstra-based spurs, the standard implementation) against
- * {@link YenAStarKShortestPath} (A*-based spurs, no bounded-pruned layer) on randomly generated
- * weighted directed graphs of varying density and {@code k}.
+ * JMH benchmark comparing three exact $k$-shortest-paths algorithms on the same workload:
+ * <ul>
+ *   <li>{@link YenKShortestPath} &mdash; the standard Dijkstra-based Yen implementation.</li>
+ *   <li>{@link YenAStarKShortestPath} &mdash; Yen with A* (reverse-distance heuristic) on the
+ *       spur step, no bounded-pruned layer.</li>
+ *   <li>{@link EppsteinKShortestPath} &mdash; Eppstein's $O(m + n \log n + k \log k)$ algorithm
+ *       (note: Eppstein returns all walks/paths, not only loopless ones, so the returned path
+ *       <em>set</em> differs from Yen for graphs with cycles; the benchmark still measures
+ *       wall-clock cost to produce $k$ paths).</li>
+ * </ul>
  *
  * <p>
- * Both algorithms are exact and return the same ordered sequence of path weights; this benchmark
- * measures only wall-clock cost. To compare against the bounded-pruned variant as well, see
+ * Yen and Yen+A* are exact for the same definition of "k loopless shortest paths" and return the
+ * same ordered weight sequence on graphs with non-negative weights. Eppstein solves a slightly
+ * different (broader) problem and is included as the standard fast-asymptotics reference. To
+ * compare against the bounded-pruned variant as well, see
  * {@link BoundedPrunedYenKShortestPathPerformance}.
  *
  * @author Shai Eilat
@@ -82,6 +91,13 @@ public class YenAStarKShortestPathPerformance
         YenAStarState state)
     {
         return computeResult(new YenAStarKShortestPath<>(state.graph), state);
+    }
+
+    @Benchmark
+    public List<List<GraphPath<Integer, DefaultWeightedEdge>>> testEppsteinKShortestPath(
+        YenAStarState state)
+    {
+        return computeResult(new EppsteinKShortestPath<>(state.graph), state);
     }
 
     private List<List<GraphPath<Integer, DefaultWeightedEdge>>> computeResult(
