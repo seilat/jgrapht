@@ -1187,13 +1187,18 @@ function runBoundedPrunedYen(g, K) {
 
 // Per-pane algorithm registry. Keys match the <option value="..."> ids in
 // the algoA / algoB selects. Each entry knows its display label, its badge,
-// and the driver to invoke for that pane.
+// the driver to invoke, and four slot labels that override the generic
+// Yen-family stats display (only Eppstein actually needs the override —
+// its meaningful counters are completely different).
+const YEN_DEFAULT_LABELS_A = ["spur tasks", "node expansions", "candidates", "accepted paths"];
+const YEN_DEFAULT_LABELS_B = ["spur tasks", "node expansions", "tasks pruned/skipped", "accepted paths"];
+const EPPSTEIN_LABELS = ["vertices settled", "tree edges", "sidetracks labelled", "walks found"];
 const YEN_ALGO_INFO = {
-  "yen-dijkstra":  { h2: "Yen + Dijkstra",          badge: "classical YenKShortestPath",                          run: runVanillaYen },
-  "yen-astar":     { h2: "Yen + A* (no BP)",        badge: "A* spur engine, setBoundedPruning(false)",            run: runYenAStarUnbounded },
-  "bp-dijkstra":   { h2: "BPYen + Dijkstra",        badge: "bounded prune + Dijkstra spur",                       run: runBoundedPrunedYenDijkstra },
-  "bp-astar":      { h2: "BPYen + A* (full)",       badge: "bounded prune + AStarSpurEngine",                     run: runBoundedPrunedYen },
-  "eppstein":      { h2: "Eppstein",                badge: "k lowest-cost walks (loops allowed)",                  run: runEppstein },
+  "yen-dijkstra":  { h2: "Yen + Dijkstra",     badge: "classical YenKShortestPath",                  run: runVanillaYen,                  labels: null },
+  "yen-astar":     { h2: "Yen + A* (no BP)",   badge: "A* spur, setBoundedPruning(false)",           run: runYenAStarUnbounded,           labels: null },
+  "bp-dijkstra":   { h2: "BPYen + Dijkstra",   badge: "bounded prune + Dijkstra spur",               run: runBoundedPrunedYenDijkstra,    labels: null },
+  "bp-astar":      { h2: "BPYen + A* (full)",  badge: "bounded prune + AStarSpurEngine",             run: runBoundedPrunedYen,            labels: null },
+  "eppstein":      { h2: "Eppstein",           badge: "k lowest-cost walks (loops allowed)",         run: runEppstein,                    labels: EPPSTEIN_LABELS },
 };
 function runYenAlgo(key, g, K) {
   const info = YEN_ALGO_INFO[key] || YEN_ALGO_INFO["yen-dijkstra"];
@@ -1294,13 +1299,20 @@ function runEppstein(g, K) {
   });
 
   // ---- Phase 4: extract K lowest-cost walks via best-first search. -----
+  // We do NOT emit a walkPop event per priority-queue pop: on dense
+  // graphs (e.g. the 30-node grid) that produces thousands of steps and
+  // drowns the rest of the visualization. The K accepts and the phase
+  // marker are enough to tell the story — preprocessing dominates step
+  // count on small graphs, K accepts at the end. On very dense graphs
+  // Eppstein's per-walk amortized cost still beats Yen.
   events.push({ kind: "phase", name: "walk extraction (k lowest-cost s → t walks)" });
   const walkPq = new MinHeap((a, b) => a.cost - b.cost);
   walkPq.push({ cost: 0, node: g.source, path: [g.source] });
   let kIndex = 0;
+  let popsDone = 0;
   while (!walkPq.isEmpty() && kIndex < K) {
     const cur = walkPq.pop();
-    events.push({ kind: "walkPop", node: cur.node, cost: cur.cost, path: cur.path });
+    popsDone += 1;
     if (cur.node === g.target) {
       kIndex += 1;
       events.push({ kind: "accept", path: cur.path, cost: cur.cost, kIndex });
@@ -1316,6 +1328,7 @@ function runEppstein(g, K) {
       });
     }
   }
+  events.push({ kind: "info", msg: `walk extraction: ${popsDone} priority-queue pops collapsed into ${kIndex} accept(s).` });
   if (kIndex < K) {
     events.push({ kind: "info", msg: `no more walks exist (found ${kIndex}).` });
   }
@@ -1665,6 +1678,7 @@ class PaneState {
     this.side = side;           // 'A' or 'B'
     this.eventInfoEl = eventInfoEl;
     this.mode = "yen";
+    this.algo = "yen-dijkstra"; // overridden in loadAndRun once a real algo is picked
     this.g = null;
     this.reset();
     this.fitDpi();
@@ -1680,10 +1694,20 @@ class PaneState {
   setSlot(idx, val) { this.slotEls[idx].textContent = String(val); }
   updateSlots() {
     if (this.mode === "yen") {
-      this.setSlot(0, this.spurCount);
-      this.setSlot(1, this.expansionCount);
-      this.setSlot(2, this.side === "A" ? this.candCount : this.prunedCount);
-      this.setSlot(3, this.acceptCount);
+      if (this.algo === "eppstein") {
+        // Eppstein has nothing called "spur tasks" / "candidates" — the
+        // meaningful counters are SPT vertices, tree edges, sidetrack
+        // labels, and walks extracted.
+        this.setSlot(0, this.exploredNodes.size);
+        this.setSlot(1, this.treeEdges.size);
+        this.setSlot(2, this.sidetrackLabels.size);
+        this.setSlot(3, this.acceptCount);
+      } else {
+        this.setSlot(0, this.spurCount);
+        this.setSlot(1, this.expansionCount);
+        this.setSlot(2, this.side === "A" ? this.candCount : this.prunedCount);
+        this.setSlot(3, this.acceptCount);
+      }
     } else if (this.mode === "single") {
       this.setSlot(0, this.expansionCount);
       this.setSlot(1, this.relaxedCount);
@@ -2246,6 +2270,8 @@ function loadAndRun() {
   if (ui.algoALabel) ui.algoALabel.style.display = showAlgoPickers ? "" : "none";
   if (ui.algoBLabel) ui.algoBLabel.style.display = showAlgoPickers ? "" : "none";
   if (mode === "yen") {
+    paneA.algo = ui.algoA.value;
+    paneB.algo = ui.algoB.value;
     state.eventsA = runYenAlgo(ui.algoA.value, g, K);
     state.eventsB = runYenAlgo(ui.algoB.value, g, K);
     // Per-pane h2 labels reflect the chosen algorithm.
@@ -2253,6 +2279,17 @@ function loadAndRun() {
     const Binfo = YEN_ALGO_INFO[ui.algoB.value] || YEN_ALGO_INFO["bp-astar"];
     document.getElementById("A_h2").innerHTML = `${escapeHtml(Ainfo.h2)} <span class="badge">${escapeHtml(Ainfo.badge)}</span>`;
     document.getElementById("B_h2").innerHTML = `${escapeHtml(Binfo.h2)} <span class="badge">${escapeHtml(Binfo.badge)}</span>`;
+    // Per-pane slot labels — Eppstein needs a different set; everyone else
+    // gets the Yen-family defaults.
+    const Alabels = Ainfo.labels || YEN_DEFAULT_LABELS_A;
+    const Blabels = Binfo.labels || YEN_DEFAULT_LABELS_B;
+    for (let i = 0; i < 4; i++) {
+      document.getElementById("A_lbl" + i).textContent = Alabels[i];
+      document.getElementById("B_lbl" + i).textContent = Blabels[i];
+    }
+    // Refresh the slot values so the new label set isn't paired with the
+    // previous algorithm's values.
+    paneA.updateSlots(); paneB.updateSlots();
   } else if (mode === "single") {
     state.eventsA = runStandardDijkstra(g);
     state.eventsB = runStandardAstar(g);
@@ -2262,23 +2299,20 @@ function loadAndRun() {
   }
   state.iA = 0; state.iB = 0;
   state.mode = mode;
-  // In forward-pruning mode pane B runs its forward-BFS prelude alone (the
-  // events before the second "phase" event), then pane A's backward BFS
-  // catches up and the two run in lockstep. Find that prelude length so
-  // applyOne() can gate pane A while pane B drains it. For other modes the
-  // offset is zero — both panes start together.
-  state.preludeB = 0;
-  if (mode === "forwardPruning") {
-    let phaseCount = 0;
-    for (let i = 0; i < state.eventsB.length; i++) {
-      if (state.eventsB[i].kind === "phase") {
-        phaseCount += 1;
-        if (phaseCount === 2) { state.preludeB = i; break; }
-      }
-    }
-  }
-  state.totalSteps = state.preludeB + Math.max(
-    state.eventsA.length,
+  // Per-pane prelude lengths: one pane (the algorithm with explicit
+  // preprocessing phases) plays its preprocessing alone while the other
+  // pane waits. The waiting pane then catches up and both proceed in
+  // lockstep. Currently three sources of preludes:
+  //   - forwardPruning mode: pane B's first phase (forward BFS) runs alone
+  //     until pane B reaches the second "phase" event (backward BFS).
+  //   - Eppstein algorithm (either pane in yen mode): runs alone until
+  //     it reaches the fourth "phase" event (walk extraction). The other
+  //     pane waits because Eppstein's preprocessing is the part the user
+  //     wants to see done first.
+  state.preludeA = computePrelude(state.eventsA, "A", mode);
+  state.preludeB = computePrelude(state.eventsB, "B", mode);
+  state.totalSteps = Math.max(state.preludeA, state.preludeB) + Math.max(
+    state.eventsA.length - state.preludeA,
     state.eventsB.length - state.preludeB,
   );
   state.step = 0;
@@ -2292,6 +2326,36 @@ function updateProgress() {
   ui.progress.textContent = `step ${state.step} / ${state.totalSteps}`;
 }
 
+/**
+ * Compute the prelude length for a given event stream — i.e. the number
+ * of leading events the OTHER pane should wait through before joining
+ * the animation. Used to make per-pane preprocessing visible.
+ *
+ *   - forwardPruning mode: pane B has a forward-BFS prelude that ends at
+ *     the second "phase" event.
+ *   - yen mode + Eppstein algorithm (either side): the pane has three
+ *     preprocessing phases (rev-Dijk, tree, sidetracks) before the walk
+ *     extraction begins at the fourth phase event.
+ *   - otherwise: 0 (no prelude).
+ */
+function computePrelude(events, side, mode) {
+  const isEppstein =
+    mode === "yen" &&
+    ((side === "A" && ui.algoA && ui.algoA.value === "eppstein") ||
+     (side === "B" && ui.algoB && ui.algoB.value === "eppstein"));
+  const isForwardPruningRight = mode === "forwardPruning" && side === "B";
+  if (!isEppstein && !isForwardPruningRight) return 0;
+  const targetPhase = isEppstein ? 4 : 2;
+  let phaseCount = 0;
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].kind === "phase") {
+      phaseCount += 1;
+      if (phaseCount === targetPhase) return i;
+    }
+  }
+  return 0;
+}
+
 function pushPathRow(listEl, path, cost, g) {
   const li = document.createElement("li");
   li.textContent = `${path.map(i => g.nodes[i].id).join(" → ")}  (cost ${cost})`;
@@ -2300,17 +2364,23 @@ function pushPathRow(listEl, path, cost, g) {
 
 function applyOne() {
   let progressed = false;
-  // Pane A is gated during pane B's forward-BFS prelude in forward-pruning
-  // mode, so the viewer sees the sandwich-style precompute happen first,
-  // and the actual backward BFS in both panes starts together.
-  const aWaiting = state.mode === "forwardPruning" && state.iB < state.preludeB;
+  // Each pane has a prelude length; while one pane is still in its
+  // prelude, the other pane waits (unless it's also in its own prelude).
+  // Otherwise both advance in lockstep. This generalises the original
+  // forward-pruning offset to also handle Eppstein's preprocessing.
+  const aInPrelude = state.iA < state.preludeA;
+  const bInPrelude = state.iB < state.preludeB;
+  // Pane A advances unless it would race ahead of pane B's still-running
+  // prelude. Symmetric for pane B.
+  const aWaiting = !aInPrelude && bInPrelude;
+  const bWaiting = !bInPrelude && aInPrelude;
   if (!aWaiting && state.iA < state.eventsA.length) {
     const ev = state.eventsA[state.iA++];
     paneA.applyEvent(ev);
     if (ev.kind === "accept") pushPathRow(ui.pathsA, ev.path, ev.cost, state.g);
     progressed = true;
   }
-  if (state.iB < state.eventsB.length) {
+  if (!bWaiting && state.iB < state.eventsB.length) {
     const ev = state.eventsB[state.iB++];
     paneB.applyEvent(ev);
     if (ev.kind === "accept") pushPathRow(ui.pathsB, ev.path, ev.cost, state.g);
