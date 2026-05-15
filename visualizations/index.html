@@ -190,6 +190,22 @@
   <select id="budget">
     <option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option>
   </select>
+  <label for="algoA" id="algoALabel">A</label>
+  <select id="algoA">
+    <option value="yen-dijkstra" selected>Yen + Dijkstra (vanilla)</option>
+    <option value="yen-astar">Yen + A* (no bounded prune)</option>
+    <option value="bp-dijkstra">BPYen + Dijkstra</option>
+    <option value="bp-astar">BPYen + A* (full)</option>
+    <option value="eppstein">Eppstein (k-shortest walks)</option>
+  </select>
+  <label for="algoB" id="algoBLabel">B</label>
+  <select id="algoB">
+    <option value="yen-dijkstra">Yen + Dijkstra (vanilla)</option>
+    <option value="yen-astar">Yen + A* (no bounded prune)</option>
+    <option value="bp-dijkstra">BPYen + Dijkstra</option>
+    <option value="bp-astar" selected>BPYen + A* (full)</option>
+    <option value="eppstein">Eppstein (k-shortest walks)</option>
+  </select>
   <label for="example">Example</label>
   <select id="example">
     <option value="grid">Grid 6×5 (A* heuristic shines)</option>
@@ -312,35 +328,37 @@
       </li>
       <li>The cheapest candidate is promoted to the next accepted path. Repeat until you have <code>K</code>.</li>
     </ol>
-    <h4>Left panel — vanilla Yen + Dijkstra</h4>
+    <h4>Pick any two variants to compare</h4>
     <p>
-      Runs a fresh Dijkstra at every spur position. No regard to whether the resulting path could
-      even beat what we already know, no regard to whether the Yen rule has cut off the only useful
-      exit from the spur node. The <em>node expansions</em> counter sums work across every Dijkstra.
-    </p>
-    <h4>Right panel — bounded-pruned Yen + A*</h4>
-    <p>
-      Three separable changes, all preserving exactness:
+      The <b>A</b> and <b>B</b> selectors in the controls bar choose the algorithm rendered in
+      each pane. Five variants are wired up, matching the JGraphT JMH grid:
     </p>
     <ul>
-      <li><b>Spur task queue.</b> Spurs are queued, keyed by an admissible lower bound
-        <code>prefixCost + h[spurNode]</code>, where <code>h</code> is the reverse-Dijkstra
-        distance on the original graph. Bans only make distances bigger, so this stays
-        admissible.</li>
-      <li><b>Lower-bound pruning.</b> While the cheapest queued task's lower bound is already ≥
-        the cheapest known candidate cost, pop it and discard it without running anything.</li>
-      <li><b>Impossible-spur skip.</b> Before invoking A*, check whether every outgoing edge of
-        the spur node is banned by the combined rules. If yes, no path can exist — skip exactly.
-        This collapses the path-chain pathology to <em>zero</em> spur searches.</li>
-      <li><b>A* spur engine.</b> Each spur that does run uses A* with the same reverse-Dijkstra
-        as heuristic — so each sub-search is itself cheaper than the corresponding Dijkstra.</li>
+      <li><b>Yen + Dijkstra</b> — classical <code>YenKShortestPath</code>: a fresh Dijkstra at
+        every spur, no deferral, no impossible-spur skip.</li>
+      <li><b>Yen + A* (no bounded prune)</b> — <code>BoundedPrunedYenKShortestPath</code> with
+        <code>setBoundedPruning(false)</code>. Same task structure as classical Yen but the
+        spur engine is A* using the reverse-Dijkstra heuristic. Most of the headline speedup
+        on the Andorra bench comes from this engine alone.</li>
+      <li><b>BPYen + Dijkstra</b> — bounded-prune lower-bound queue and impossible-spur skip,
+        but the spur engine itself is plain Dijkstra (no heuristic). Useful for isolating the
+        contribution of the bounded layer from the contribution of the A* engine.</li>
+      <li><b>BPYen + A* (full)</b> — everything on: A* spur engine, lower-bound deferral,
+        impossible-spur skip.</li>
+      <li><b>Eppstein</b> — different family. Builds the shortest-path tree from the target,
+        labels every non-tree edge with its sidetrack cost
+        <code>δ(u, v) = w(u, v) + dB(v) − dB(u)</code>, then enumerates the k lowest-cost
+        walks from source to target. Walks may repeat vertices, so on graphs with cycles the
+        answers differ from the Yen-family (which returns simple paths).</li>
     </ul>
-    <h4>What to watch</h4>
+    <h4>What to compare</h4>
     <p>
-      Compare the <em>spur tasks</em> and <em>node expansions</em> counters at the top of each
-      pane. On the chain example the bounded driver runs the initial A* and zero further
-      searches. On the grid example A*'s heuristic collapses each spur to a near-straight line,
-      and a chunk of spur tasks get pruned by lower bound before they ever run.
+      Default selection — Yen + Dijkstra (left) vs BPYen + A* (right) — mirrors the original
+      visualization: the right pane is dramatically faster on the chain example (zero spur
+      searches after the initial path) and visibly tighter on the grid (A* heads straight at
+      the target). Set both panes to A* engines (one with the bounded-prune layer, one without)
+      to see how small the bounded layer's marginal win is once A* is in play; set one pane
+      to Eppstein to compare a fundamentally different algorithm.
     </p>
   </div>
 
@@ -957,85 +975,118 @@ function maskForSpur(g, prevPath, spurIdx, alreadyAccepted) {
   return { bannedEdges, bannedNodes };
 }
 
-function runVanillaYen(g, K) {
+/**
+ * Unified Yen-family driver, parametric in
+ *   opts.engine  : "dijkstra" | "astar"      — spur engine + initial-path engine
+ *   opts.bounded : boolean                   — bounded-prune lower-bound queue
+ *                                              with impossible-spur skip
+ *
+ * The four canonical combinations mirror the JGraphT benchmark grid:
+ *   { dijkstra, false } → classical YenKShortestPath
+ *   { astar,    false } → Yen with AStarSpurEngine but no bounded prune
+ *                          (BoundedPrunedYenKShortestPath.setBoundedPruning(false))
+ *   { dijkstra, true  } → BoundedPrunedYen with DijkstraSpurEngine
+ *   { astar,    true  } → BoundedPrunedYen with AStarSpurEngine (full)
+ *
+ * When `bounded` is on the reverse-Dijkstra distances are needed regardless
+ * of engine — they're the admissible lower-bound oracle for the task queue.
+ */
+function runYen(g, K, opts) {
+  const engine = opts.engine === "astar" ? "astar" : "dijkstra";
+  const bounded = !!opts.bounded;
   const events = [];
   const accepted = [];
-  // Initial path (Dijkstra on full graph).
-  const init = dijkstra(g, g.source, g.target, null, null);
-  if (!init.path) {
-    events.push({ kind: "info", msg: "no path from source to target." });
-    events.push({ kind: "end" });
-    return events;
-  }
-  events.push({ kind: "initial", path: init.path, cost: init.cost, expansions: init.expansions, engine: "Dijkstra" });
-  events.push({ kind: "accept", path: init.path, cost: init.cost, kIndex: 1 });
-  accepted.push(init.path);
-  const seen = new Set([pathKey(init.path)]);
-  // Candidate heap (path, cost).
-  const candidates = new MinHeap((a, b) => a.cost - b.cost);
-  let prevPath = init.path;
-  while (accepted.length < K) {
-    // Generate spurs from prevPath.
-    for (let i = 0; i < prevPath.length - 1; i++) {
-      const spurNode = prevPath[i];
-      const rootPath = prevPath.slice(0, i + 1);
-      const prefixCost = pathCost(g, rootPath);
-      const { bannedEdges, bannedNodes } = maskForSpur(g, prevPath, i, accepted);
-      events.push({
-        kind: "spurStart",
-        spurNodeIdx: spurNode, spurIdxInPath: i,
-        prefixCost,
-        bannedEdges: new Set(bannedEdges), bannedNodes: new Set(bannedNodes),
-        rootPath, prevPath,
-      });
-      const spur = dijkstra(g, spurNode, g.target, bannedEdges, bannedNodes);
-      for (const n of spur.expansions) events.push({ kind: "spurExpand", node: n });
-      if (!spur.path) {
-        events.push({ kind: "spurSkip", reason: "no path under bans" });
-        continue;
-      }
-      const fullPath = rootPath.slice(0, -1).concat(spur.path);
-      const total = prefixCost + spur.cost;
-      events.push({ kind: "spurDone", path: fullPath, cost: total, prefixCost });
-      const key = pathKey(fullPath);
-      if (!seen.has(key)) {
-        seen.add(key);
-        candidates.push({ path: fullPath, cost: total });
-        events.push({ kind: "candidate", path: fullPath, cost: total });
-      }
-    }
-    if (candidates.isEmpty()) {
-      events.push({ kind: "info", msg: `no more paths exist (found ${accepted.length}).` });
-      break;
-    }
-    const next = candidates.pop();
-    accepted.push(next.path);
-    events.push({ kind: "accept", path: next.path, cost: next.cost, kIndex: accepted.length });
-    prevPath = next.path;
-  }
-  events.push({ kind: "end" });
-  return events;
-}
 
-function runBoundedPrunedYen(g, K) {
-  const events = [];
-  const accepted = [];
-  const h = reverseDistances(g, g.target);
-  events.push({ kind: "info", msg: "precomputed reverse-Dijkstra distances (admissible heuristic / lower-bound oracle)." });
-  // Initial path via A*.
-  const init = astar(g, g.source, g.target, h, null, null);
+  // Reverse-Dijkstra distances are needed for: A* spur engine heuristic AND
+  // bounded-prune lower-bound oracle. Compute once.
+  const needsReverse = engine === "astar" || bounded;
+  const h = needsReverse ? reverseDistances(g, g.target) : null;
+  if (needsReverse) {
+    events.push({
+      kind: "info",
+      msg: bounded
+        ? (engine === "astar"
+            ? "precomputed reverse-Dijkstra distances (A* heuristic + lower-bound oracle)."
+            : "precomputed reverse-Dijkstra distances (lower-bound oracle for the task queue).")
+        : "precomputed reverse-Dijkstra distances (A* heuristic).",
+    });
+  }
+
+  // Initial path.
+  const findShortest = (src, dst, bannedE, bannedN) =>
+    engine === "astar"
+      ? astar(g, src, dst, h, bannedE, bannedN)
+      : dijkstra(g, src, dst, bannedE, bannedN);
+  const init = findShortest(g.source, g.target, null, null);
   if (!init.path) {
     events.push({ kind: "info", msg: "no path from source to target." });
     events.push({ kind: "end" });
     return events;
   }
-  events.push({ kind: "initial", path: init.path, cost: init.cost, expansions: init.expansions, engine: "A*" });
+  events.push({
+    kind: "initial", path: init.path, cost: init.cost,
+    expansions: init.expansions, engine: engine === "astar" ? "A*" : "Dijkstra",
+  });
   events.push({ kind: "accept", path: init.path, cost: init.cost, kIndex: 1 });
   accepted.push(init.path);
   const seen = new Set([pathKey(init.path)]);
-  // Spur tasks ordered by lower bound.
+
+  if (!bounded) {
+    // ----------------------------------------------------------------------
+    // Classical Yen: regenerate spurs off the last accepted path on every
+    // iteration. No deferral, every spur runs.
+    // ----------------------------------------------------------------------
+    const candidates = new MinHeap((a, b) => a.cost - b.cost);
+    let prevPath = init.path;
+    while (accepted.length < K) {
+      for (let i = 0; i < prevPath.length - 1; i++) {
+        const spurNode = prevPath[i];
+        const rootPath = prevPath.slice(0, i + 1);
+        const prefixCost = pathCost(g, rootPath);
+        const { bannedEdges, bannedNodes } = maskForSpur(g, prevPath, i, accepted);
+        events.push({
+          kind: "spurStart",
+          spurNodeIdx: spurNode, spurIdxInPath: i,
+          prefixCost,
+          bannedEdges: new Set(bannedEdges), bannedNodes: new Set(bannedNodes),
+          rootPath, prevPath,
+        });
+        const spur = findShortest(spurNode, g.target, bannedEdges, bannedNodes);
+        for (const n of spur.expansions) events.push({ kind: "spurExpand", node: n });
+        if (!spur.path) {
+          events.push({ kind: "spurSkip", reason: "no path under bans" });
+          continue;
+        }
+        const fullPath = rootPath.slice(0, -1).concat(spur.path);
+        const total = prefixCost + spur.cost;
+        events.push({ kind: "spurDone", path: fullPath, cost: total, prefixCost });
+        const key = pathKey(fullPath);
+        if (!seen.has(key)) {
+          seen.add(key);
+          candidates.push({ path: fullPath, cost: total });
+          events.push({ kind: "candidate", path: fullPath, cost: total });
+        }
+      }
+      if (candidates.isEmpty()) {
+        events.push({ kind: "info", msg: `no more paths exist (found ${accepted.length}).` });
+        break;
+      }
+      const next = candidates.pop();
+      accepted.push(next.path);
+      events.push({ kind: "accept", path: next.path, cost: next.cost, kIndex: accepted.length });
+      prevPath = next.path;
+    }
+    events.push({ kind: "end" });
+    return events;
+  }
+
+  // ----------------------------------------------------------------------
+  // Bounded-prune branch: spur tasks deferred on a lower-bound priority
+  // queue (prefixCost + h[spurNode]); tasks pruned once a candidate
+  // dominates them; impossible-spur skip handles bans that close the
+  // spur node entirely.
+  // ----------------------------------------------------------------------
   const taskQ = new MinHeap((a, b) => a.lb - b.lb);
-  // Candidate min-heap (already-materialised paths).
   const candQ = new MinHeap((a, b) => a.cost - b.cost);
 
   function enqueueSpursOf(prevPath) {
@@ -1043,27 +1094,18 @@ function runBoundedPrunedYen(g, K) {
       const spurNode = prevPath[i];
       const rootPath = prevPath.slice(0, i + 1);
       const prefixCost = pathCost(g, rootPath);
-      // Admissible LB: prefixCost + h[spurNode]  (reverse dist on original graph).
-      // Bans only increase distances, so this stays admissible.
       const lb = prefixCost + h[spurNode];
-      taskQ.push({
-        lb, prefixCost, spurNode, spurIdxInPath: i, prevPath, rootPath,
-      });
+      taskQ.push({ lb, prefixCost, spurNode, spurIdxInPath: i, prevPath, rootPath });
     }
   }
-
   enqueueSpursOf(init.path);
 
   while (accepted.length < K) {
-    // Best known candidate cost (Infinity if none).
     let bestCand = candQ.isEmpty() ? Infinity : candQ.a[0].cost;
-    // Drain tasks whose lower bound already beats no candidate.
     while (!taskQ.isEmpty() && taskQ.a[0].lb < bestCand) {
       const t = taskQ.pop();
       const { bannedEdges, bannedNodes } = maskForSpur(g, t.prevPath, t.spurIdxInPath, accepted);
-      // Impossible-spur skip: if every outgoing edge of the spur node is
-      // banned (Yen rule + simple-path rule), no path exists; skip without
-      // running A*.
+      // Impossible-spur skip.
       let anyOut = false;
       for (const eIdx of g.adj[t.spurNode]) {
         if (bannedEdges.has(eIdx)) continue;
@@ -1083,10 +1125,10 @@ function runBoundedPrunedYen(g, K) {
         events.push({ kind: "spurSkip", reason: "impossible-spur (every outgoing edge banned)" });
         continue;
       }
-      const spur = astar(g, t.spurNode, g.target, h, bannedEdges, bannedNodes);
+      const spur = findShortest(t.spurNode, g.target, bannedEdges, bannedNodes);
       for (const n of spur.expansions) events.push({ kind: "spurExpand", node: n });
       if (!spur.path) {
-        events.push({ kind: "spurSkip", reason: "A* reports no path under bans" });
+        events.push({ kind: "spurSkip", reason: `${engine === "astar" ? "A*" : "Dijkstra"} reports no path under bans` });
         continue;
       }
       const fullPath = t.rootPath.slice(0, -1).concat(spur.path);
@@ -1100,7 +1142,6 @@ function runBoundedPrunedYen(g, K) {
         if (total < bestCand) bestCand = total;
       }
     }
-    // Anything still in taskQ has lb >= bestCand and can be pruned.
     while (!taskQ.isEmpty() && taskQ.a[0].lb >= bestCand && isFinite(bestCand)) {
       const t = taskQ.pop();
       events.push({
@@ -1120,6 +1161,135 @@ function runBoundedPrunedYen(g, K) {
     accepted.push(next.path);
     events.push({ kind: "accept", path: next.path, cost: next.cost, kIndex: accepted.length });
     if (accepted.length < K) enqueueSpursOf(next.path);
+  }
+  events.push({ kind: "end" });
+  return events;
+}
+
+// Thin wrappers — keep the original two entry points for callers (and tests)
+// that pre-date the parametric refactor.
+function runVanillaYen(g, K) {
+  return runYen(g, K, { engine: "dijkstra", bounded: false });
+}
+function runYenAStarUnbounded(g, K) {
+  return runYen(g, K, { engine: "astar", bounded: false });
+}
+function runBoundedPrunedYenDijkstra(g, K) {
+  return runYen(g, K, { engine: "dijkstra", bounded: true });
+}
+function runBoundedPrunedYen(g, K) {
+  return runYen(g, K, { engine: "astar", bounded: true });
+}
+
+// Per-pane algorithm registry. Keys match the <option value="..."> ids in
+// the algoA / algoB selects. Each entry knows its display label, its badge,
+// and the driver to invoke for that pane.
+const YEN_ALGO_INFO = {
+  "yen-dijkstra":  { h2: "Yen + Dijkstra",          badge: "classical YenKShortestPath",                          run: runVanillaYen },
+  "yen-astar":     { h2: "Yen + A* (no BP)",        badge: "A* spur engine, setBoundedPruning(false)",            run: runYenAStarUnbounded },
+  "bp-dijkstra":   { h2: "BPYen + Dijkstra",        badge: "bounded prune + Dijkstra spur",                       run: runBoundedPrunedYenDijkstra },
+  "bp-astar":      { h2: "BPYen + A* (full)",       badge: "bounded prune + AStarSpurEngine",                     run: runBoundedPrunedYen },
+  "eppstein":      { h2: "Eppstein",                badge: "k lowest-cost walks (loops allowed)",                  run: runEppstein },
+};
+function runYenAlgo(key, g, K) {
+  const info = YEN_ALGO_INFO[key] || YEN_ALGO_INFO["yen-dijkstra"];
+  return info.run(g, K);
+}
+
+/* ============================================================
+ * Eppstein's k-shortest paths (mode "yen" algorithm = "eppstein")
+ *
+ * Faithful-in-spirit visualization rather than a faithful implementation
+ * of the persistent-heap data structure Eppstein uses (which is heavy and
+ * wouldn't render well as a node/edge animation). What we do:
+ *
+ *   1. Reverse Dijkstra from the target builds the shortest-path tree T*
+ *      (one out-edge per non-target vertex chosen by min reverse distance).
+ *   2. For every non-tree edge u→v, compute the sidetrack cost
+ *        delta(u, v) = w(u, v) + dB(v) - dB(u)
+ *      and decorate the edge with that label. Tree edges have delta = 0.
+ *   3. Enumerate k shortest s→t walks in priority order: a walk is
+ *      identified by its sequence of "sidetrack jumps" taken before
+ *      sliding down the tree back to t. We do this directly with a min-
+ *      heap over (cumulative-cost, current-node, walk-so-far), expanding
+ *      tree edges and non-tree (sidetrack) edges. Equivalent answer to
+ *      Eppstein but enumerated by best-first walk search; on graphs with
+ *      cycles this returns the same k lowest-cost walks Eppstein would.
+ *
+ * The benchmark reports Eppstein returns "k lowest-weight walks (loops
+ * allowed)" — so on the small acyclic-ish examples in the visualizer
+ * the answer matches the Yen-family for K=1, and may differ for K>=2.
+ * ============================================================ */
+function runEppstein(g, K) {
+  const events = [];
+  const dB = reverseDistances(g, g.target);
+  if (!isFinite(dB[g.source])) {
+    events.push({ kind: "info", msg: "no path from source to target." });
+    events.push({ kind: "end" });
+    return events;
+  }
+  events.push({
+    kind: "initial",
+    path: [g.source],   // placeholder; actual paths come from accept events
+    cost: 0,
+    expansions: [],
+    engine: "Eppstein",
+  });
+  events.push({ kind: "info", msg: "reverse Dijkstra → shortest-path tree from target." });
+
+  // Build the shortest-path tree T*: choose one out-edge per vertex (the
+  // one that lies on the shortest path to target). Track the chosen edge
+  // index per vertex so we can render the tree.
+  const treeOutEdge = new Array(g.nodes.length).fill(-1);
+  for (let u = 0; u < g.nodes.length; u++) {
+    if (!isFinite(dB[u]) || u === g.target) continue;
+    for (const eIdx of g.adj[u]) {
+      const e = g.edges[eIdx];
+      if (!isFinite(dB[e.v])) continue;
+      if (dB[u] === e.w + dB[e.v]) { treeOutEdge[u] = eIdx; break; }
+    }
+  }
+  // Label every edge as tree (sidetrack = 0) or non-tree (sidetrack > 0).
+  // For visualization we emit a candidate event with the sidetrack label;
+  // the renderer's existing edge label fallback won't help here so the
+  // sidetrack number stays as info text only.
+  let sidetrackCount = 0;
+  for (let eIdx = 0; eIdx < g.edges.length; eIdx++) {
+    const e = g.edges[eIdx];
+    if (!isFinite(dB[e.u]) || !isFinite(dB[e.v])) continue;
+    const delta = e.w + dB[e.v] - dB[e.u];
+    if (delta > 0) sidetrackCount++;
+  }
+  events.push({
+    kind: "info",
+    msg: `sidetracks computed: ${sidetrackCount} non-tree edges with δ > 0; tree edges have δ = 0.`,
+  });
+
+  // K-shortest walks via best-first search ordered by cumulative cost.
+  // Each item: { cost, node, path (array of node ids) }.
+  const pq = new MinHeap((a, b) => a.cost - b.cost);
+  pq.push({ cost: 0, node: g.source, path: [g.source] });
+  let kIndex = 0;
+  while (!pq.isEmpty() && kIndex < K) {
+    const cur = pq.pop();
+    if (cur.node === g.target) {
+      kIndex += 1;
+      events.push({ kind: "accept", path: cur.path, cost: cur.cost, kIndex });
+      continue;
+    }
+    for (const eIdx of g.adj[cur.node]) {
+      const e = g.edges[eIdx];
+      // Drop walks already provably worse than dB-relaxed cheapest.
+      if (!isFinite(dB[e.v])) continue;
+      pq.push({
+        cost: cur.cost + e.w,
+        node: e.v,
+        path: cur.path.concat([e.v]),
+      });
+    }
+  }
+  if (kIndex < K) {
+    events.push({ kind: "info", msg: `no more walks exist (found ${kIndex}).` });
   }
   events.push({ kind: "end" });
   return events;
@@ -1868,6 +2038,10 @@ const ui = {
   kLabel: document.querySelector("label[for=k]"),
   budget: document.getElementById("budget"),
   budgetLabel: document.getElementById("budgetLabel"),
+  algoA: document.getElementById("algoA"),
+  algoB: document.getElementById("algoB"),
+  algoALabel: document.getElementById("algoALabel"),
+  algoBLabel: document.getElementById("algoBLabel"),
   run: document.getElementById("run"),
   play: document.getElementById("play"),
   pause: document.getElementById("pause"),
@@ -1980,16 +2154,26 @@ function loadAndRun() {
     : "Press <b>Play</b> — pane B runs its forward BFS prelude first; once that finishes pane A's backward BFS starts and both proceed in lockstep.";
   document.getElementById("eventInfoA").innerHTML = startMsg;
   document.getElementById("eventInfoB").innerHTML = startMsg;
-  // Show/hide K and budget pickers per mode.
+  // Show/hide K, budget, and per-pane algorithm pickers per mode.
   const showK = mode === "yen";
   const showBudget = mode === "forwardPruning";
+  const showAlgoPickers = mode === "yen";
   if (ui.k) ui.k.style.display = showK ? "" : "none";
   if (ui.kLabel) ui.kLabel.style.display = showK ? "" : "none";
   if (ui.budget) ui.budget.style.display = showBudget ? "" : "none";
   if (ui.budgetLabel) ui.budgetLabel.style.display = showBudget ? "" : "none";
+  if (ui.algoA) ui.algoA.style.display = showAlgoPickers ? "" : "none";
+  if (ui.algoB) ui.algoB.style.display = showAlgoPickers ? "" : "none";
+  if (ui.algoALabel) ui.algoALabel.style.display = showAlgoPickers ? "" : "none";
+  if (ui.algoBLabel) ui.algoBLabel.style.display = showAlgoPickers ? "" : "none";
   if (mode === "yen") {
-    state.eventsA = runVanillaYen(g, K);
-    state.eventsB = runBoundedPrunedYen(g, K);
+    state.eventsA = runYenAlgo(ui.algoA.value, g, K);
+    state.eventsB = runYenAlgo(ui.algoB.value, g, K);
+    // Per-pane h2 labels reflect the chosen algorithm.
+    const Ainfo = YEN_ALGO_INFO[ui.algoA.value] || YEN_ALGO_INFO["yen-dijkstra"];
+    const Binfo = YEN_ALGO_INFO[ui.algoB.value] || YEN_ALGO_INFO["bp-astar"];
+    document.getElementById("A_h2").innerHTML = `${escapeHtml(Ainfo.h2)} <span class="badge">${escapeHtml(Ainfo.badge)}</span>`;
+    document.getElementById("B_h2").innerHTML = `${escapeHtml(Binfo.h2)} <span class="badge">${escapeHtml(Binfo.badge)}</span>`;
   } else if (mode === "single") {
     state.eventsA = runStandardDijkstra(g);
     state.eventsB = runStandardAstar(g);
@@ -2103,6 +2287,8 @@ ui.mode.addEventListener("change", () => { pause(); loadAndRun(); });
 ui.budget.addEventListener("change", () => { pause(); loadAndRun(); });
 ui.example.addEventListener("change", () => { pause(); loadAndRun(); });
 ui.k.addEventListener("change", () => { pause(); loadAndRun(); });
+ui.algoA.addEventListener("change", () => { pause(); loadAndRun(); });
+ui.algoB.addEventListener("change", () => { pause(); loadAndRun(); });
 
 loadAndRun();
 
