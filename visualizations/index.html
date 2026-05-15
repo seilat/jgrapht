@@ -25,6 +25,8 @@
     --edge-active: #6cb3ff;         /* active spur path / current edge */
     --edge-considered: #f3c04a;     /* edge being evaluated this step */
     --edge-accepted: #ffd166;       /* final answer — gold, persists */
+    --edge-tree: #8a7a3a;           /* Eppstein shortest-path-tree edge */
+    --edge-sidetrack: #6a90c0;      /* Eppstein non-tree edge with δ label */
     --edge-final: #8ee08e;          /* legacy: bright green accent */
     --node-fill: #2a3142;
     --node-stroke: #6c7488;
@@ -285,6 +287,8 @@
     <span><span class="sw" style="background:var(--edge-considered);height:4px;border-radius:2px"></span>currently considered edge</span>
     <span><span class="sw" style="background:var(--edge-active);height:4px;border-radius:2px"></span>active spur path / reconstructed path</span>
     <span><span class="sw" style="background:var(--edge-accepted);height:4px;border-radius:2px"></span>accepted path (final answer)</span>
+    <span><span class="sw" style="background:var(--edge-tree);height:4px;border-radius:2px"></span>Eppstein tree edge T* (δ = 0)</span>
+    <span><span class="sw" style="background:transparent;border:1px solid var(--edge-sidetrack);color:var(--edge-sidetrack);width:auto;padding:0 4px;font-size:9px;font-weight:600">δ</span>Eppstein sidetrack label</span>
   </div>
 
   <details class="explainer" id="glossaryWrap">
@@ -1222,56 +1226,81 @@ function runYenAlgo(key, g, K) {
  * ============================================================ */
 function runEppstein(g, K) {
   const events = [];
-  const dB = reverseDistances(g, g.target);
+  const n = g.nodes.length;
+  events.push({ kind: "phase", name: "reverse Dijkstra (build shortest-path tree T*)" });
+
+  // ---- Phase 1: reverse Dijkstra, animated. -----------------------------
+  // Pop nodes from the open set one at a time; the popped distance is
+  // dB(u). Record settle order via vertexBwd events so the renderer
+  // greens them progressively.
+  const dB = new Array(n).fill(Infinity);
+  const settled = new Uint8Array(n);
+  dB[g.target] = 0;
+  const pq = new MinHeap((a, b) => a.d - b.d);
+  pq.push({ d: 0, v: g.target });
+  while (!pq.isEmpty()) {
+    const { d, v } = pq.pop();
+    if (settled[v]) continue;
+    settled[v] = 1;
+    events.push({ kind: "vertexBwd", node: v, dist: d });
+    for (const eIdx of g.radj[v]) {
+      const e = g.edges[eIdx];
+      const nd = d + e.w;
+      if (nd < dB[e.u]) {
+        dB[e.u] = nd;
+        pq.push({ d: nd, v: e.u });
+      }
+    }
+  }
   if (!isFinite(dB[g.source])) {
     events.push({ kind: "info", msg: "no path from source to target." });
     events.push({ kind: "end" });
     return events;
   }
-  events.push({
-    kind: "initial",
-    path: [g.source],   // placeholder; actual paths come from accept events
-    cost: 0,
-    expansions: [],
-    engine: "Eppstein",
-  });
-  events.push({ kind: "info", msg: "reverse Dijkstra → shortest-path tree from target." });
+  // No synthetic "initial" — that event resets exploredNodes, which would
+  // wipe the reverse-Dijkstra greens we just rendered. Eppstein's "initial
+  // path" concept is just the tree path from source to target; it shows
+  // up implicitly once tree edges + the K=1 accepted walk are drawn.
 
-  // Build the shortest-path tree T*: choose one out-edge per vertex (the
-  // one that lies on the shortest path to target). Track the chosen edge
-  // index per vertex so we can render the tree.
-  const treeOutEdge = new Array(g.nodes.length).fill(-1);
-  for (let u = 0; u < g.nodes.length; u++) {
+  // ---- Phase 2: pick a tree edge per non-target vertex, animated. ------
+  events.push({ kind: "phase", name: "shortest-path tree T* — picking out-edges" });
+  const isTreeEdge = new Uint8Array(g.edges.length);
+  for (let u = 0; u < n; u++) {
     if (!isFinite(dB[u]) || u === g.target) continue;
     for (const eIdx of g.adj[u]) {
       const e = g.edges[eIdx];
       if (!isFinite(dB[e.v])) continue;
-      if (dB[u] === e.w + dB[e.v]) { treeOutEdge[u] = eIdx; break; }
+      if (dB[u] === e.w + dB[e.v]) {
+        isTreeEdge[eIdx] = 1;
+        events.push({ kind: "treeEdge", edgeIdx: eIdx, u, v: e.v });
+        break;
+      }
     }
   }
-  // Label every edge as tree (sidetrack = 0) or non-tree (sidetrack > 0).
-  // For visualization we emit a candidate event with the sidetrack label;
-  // the renderer's existing edge label fallback won't help here so the
-  // sidetrack number stays as info text only.
+
+  // ---- Phase 3: label every edge with its sidetrack cost, animated. ----
+  events.push({ kind: "phase", name: "sidetrack δ(u,v) = w(u,v) + dB(v) − dB(u)" });
   let sidetrackCount = 0;
   for (let eIdx = 0; eIdx < g.edges.length; eIdx++) {
     const e = g.edges[eIdx];
     if (!isFinite(dB[e.u]) || !isFinite(dB[e.v])) continue;
     const delta = e.w + dB[e.v] - dB[e.u];
+    events.push({ kind: "sidetrack", edgeIdx: eIdx, u: e.u, v: e.v, delta });
     if (delta > 0) sidetrackCount++;
   }
   events.push({
     kind: "info",
-    msg: `sidetracks computed: ${sidetrackCount} non-tree edges with δ > 0; tree edges have δ = 0.`,
+    msg: `${sidetrackCount} non-tree edges with δ > 0; tree edges have δ = 0.`,
   });
 
-  // K-shortest walks via best-first search ordered by cumulative cost.
-  // Each item: { cost, node, path (array of node ids) }.
-  const pq = new MinHeap((a, b) => a.cost - b.cost);
-  pq.push({ cost: 0, node: g.source, path: [g.source] });
+  // ---- Phase 4: extract K lowest-cost walks via best-first search. -----
+  events.push({ kind: "phase", name: "walk extraction (k lowest-cost s → t walks)" });
+  const walkPq = new MinHeap((a, b) => a.cost - b.cost);
+  walkPq.push({ cost: 0, node: g.source, path: [g.source] });
   let kIndex = 0;
-  while (!pq.isEmpty() && kIndex < K) {
-    const cur = pq.pop();
+  while (!walkPq.isEmpty() && kIndex < K) {
+    const cur = walkPq.pop();
+    events.push({ kind: "walkPop", node: cur.node, cost: cur.cost, path: cur.path });
     if (cur.node === g.target) {
       kIndex += 1;
       events.push({ kind: "accept", path: cur.path, cost: cur.cost, kIndex });
@@ -1279,9 +1308,8 @@ function runEppstein(g, K) {
     }
     for (const eIdx of g.adj[cur.node]) {
       const e = g.edges[eIdx];
-      // Drop walks already provably worse than dB-relaxed cheapest.
       if (!isFinite(dB[e.v])) continue;
-      pq.push({
+      walkPq.push({
         cost: cur.cost + e.w,
         node: e.v,
         path: cur.path.concat([e.v]),
@@ -1530,6 +1558,14 @@ const EVENT_INFO = {
     candidate: (ev) => `<b>New candidate.</b> A fully-built path of cost ${ev.cost} (length ${ev.path.length - 1}) has been added to the candidate min-heap. It competes with every other candidate to be the next K-shortest path.`,
     prune: (ev) => `<b>Task pruned by lower bound.</b> The cheapest task left in the queue has lb=${ev.lowerBound}, but a candidate of cost ${ev.bestCandidate} is already known. No spur from here could ever beat that — discard without running.`,
     accept: (ev) => `<b>Accept path #${ev.kIndex}.</b> The cheapest candidate has been promoted to the next K-shortest path. If we still need more, we'll generate spur tasks off <em>this</em> path next.`,
+    // Eppstein extras — phase markers, tree-edge selection, sidetrack
+    // labelling, and walk-extraction pops. Reuse vertexBwd for reverse-
+    // Dijkstra pops (same renderer logic as forward-pruning's bwd BFS).
+    phase: (ev) => `<b>Phase: ${escapeHtml(ev.name)}.</b>`,
+    vertexBwd: (ev, p) => `<b>Reverse Dijkstra pops <code>${escapeHtml(p.nodeLabel(ev.node))}</code></b> at <code>dB=${ev.dist}</code>. Its shortest distance to the target is now committed; downstream tree-edge selection will use this.`,
+    treeEdge: (ev, p) => `<b>Tree edge <code>${escapeHtml(p.nodeLabel(ev.u))} → ${escapeHtml(p.nodeLabel(ev.v))}</code> joins T*.</b> This edge lies on a min-cost route from <code>${escapeHtml(p.nodeLabel(ev.u))}</code> to the target (its sidetrack cost is 0). The tree is what Eppstein walks down for free after each sidetrack jump.`,
+    sidetrack: (ev, p) => `<b>Sidetrack δ(<code>${escapeHtml(p.nodeLabel(ev.u))} → ${escapeHtml(p.nodeLabel(ev.v))}</code>) = ${ev.delta}.</b> ${ev.delta === 0 ? "Tree edge — costs nothing extra over the shortest path through its tail." : "Non-tree edge — using it adds exactly " + ev.delta + " to the cost over the shortest path through the tail. Eppstein's k-shortest walks are enumerated as sequences of these sidetracks."}`,
+    walkPop: (ev, p) => `<b>Walk pop.</b> Best-first search popped a partial walk ending at <code>${escapeHtml(p.nodeLabel(ev.node))}</code> with cumulative cost ${ev.cost}. It'll be extended along every outgoing edge and re-queued, or accepted if it has reached the target.`,
     stat: () => "",
     // Leave the previous event explanation (typically the last "accept")
     // visible; the status tag already says "done".
@@ -1675,6 +1711,10 @@ class PaneState {
     this.forwardNodes = new Set();
     this.keptEdges = new Set();
     this.droppedEdges = new Set();
+    // Eppstein scaffolding: shortest-path-tree edges (subtle gold) and
+    // per-edge sidetrack costs δ(u,v) = w(u,v) + dB(v) − dB(u).
+    this.treeEdges = new Set();
+    this.sidetrackLabels = new Map();
     this.spurNode = -1;
     this.impossibleSpurNode = -1;     // last spur node skipped as impossible
     this.activePath = null;
@@ -1771,8 +1811,10 @@ class PaneState {
         // Only Yen's spur scratch state should be wiped on accept; the
         // single-shortest expansion frontier and the sandwich pane's
         // forward/backward marks + kept/dropped edge classification need
-        // to stay visible alongside each accepted path.
-        if (this.mode === "yen") {
+        // to stay visible alongside each accepted path. Eppstein also
+        // wants its reverse-Dijkstra green nodes to persist (treeEdges
+        // is non-empty in that case).
+        if (this.mode === "yen" && this.treeEdges.size === 0) {
           this.exploredNodes = new Set();
           this.bannedEdges = new Set();
           this.bannedNodes = new Set();
@@ -1833,11 +1875,32 @@ class PaneState {
         this.fwdMarkedCount = ev.fwdMarked;
         this.lastEventTag = `<span class="tag tag-accept">summary</span>${ev.retained} retained, ${ev.dropped} dropped`;
         break;
+      case "treeEdge":
+        // Eppstein: an edge gets promoted into the shortest-path tree
+        // (it lies on a min-cost route to T from its tail). Render
+        // muted-gold to show the tree's structure as it grows.
+        this.treeEdges.add(ev.edgeIdx);
+        this.lastEventTag = `<span class="tag tag-info">tree edge</span><code>${this.nodeLabel(ev.u)} → ${this.nodeLabel(ev.v)}</code> joins T*`;
+        break;
+      case "sidetrack":
+        this.sidetrackLabels.set(ev.edgeIdx, ev.delta);
+        this.lastEventTag = `<span class="tag tag-info">δ</span><code>${this.nodeLabel(ev.u)} → ${this.nodeLabel(ev.v)}</code> sidetrack δ=${ev.delta}`;
+        break;
+      case "walkPop":
+        // Eppstein walk-extraction step: a path prefix popped from the
+        // best-first priority queue. activePath shows the prefix; once
+        // it reaches the target it'll fire an accept.
+        this.activePath = ev.path.slice();
+        this.lastEventTag = `<span class="tag tag-expand">walk pop</span>at <code>${this.nodeLabel(ev.node)}</code> cost ${ev.cost}`;
+        break;
       case "end":
         this.spurNode = -1;
         // Keep the explored set and final state visible in single + sandwich
         // modes; only clear it in yen mode where it was per-spur scratch.
-        if (this.mode === "yen") {
+        // Exception: in Eppstein the explored set is the reverse-Dijkstra
+        // settled nodes — meaningful as a final state. Detect via the
+        // non-empty tree-edge set.
+        if (this.mode === "yen" && this.treeEdges.size === 0) {
           this.activePath = null;
           this.exploredNodes = new Set();
         }
@@ -1882,6 +1945,10 @@ class PaneState {
         if (this.keptEdges.has(eIdx))    { color = getCss("--edge-kept"); width = 1.8; }
         if (this.droppedEdges.has(eIdx)) { color = getCss("--edge-dropped"); width = 1.4; dashed = true; }
       }
+      // 1b. Eppstein scaffolding — tree edges are muted gold (δ = 0),
+      //     non-tree edges with sidetrack cost stay grey but get the
+      //     δ label rendered later.
+      if (this.treeEdges.has(eIdx)) { color = getCss("--edge-tree"); width = 2.2; }
       // 2. Yen-rule banned edges — solid red, thin.
       if (this.bannedEdges.has(eIdx)) { color = getCss("--edge-banned"); width = 1.6; }
       // 3. Active spur path / single-mode reconstructed path — blue, thick.
@@ -1917,7 +1984,8 @@ class PaneState {
       // unweighted — every edge cost is 1). Also skipped when the whole
       // graph is unit-weighted, since labels of "1" everywhere are noise.
       const allUnit = g._allUnit ?? (g._allUnit = g.edges.every(ed => ed.w === 1));
-      if (!(isForwardPruning || allUnit)) {
+      const hasSidetrack = this.sidetrackLabels.has(eIdx);
+      if (!(isForwardPruning || allUnit) || hasSidetrack) {
         const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
         ctx.font = "11px ui-sans-serif, sans-serif";
         ctx.fillStyle = this.bannedEdges.has(eIdx) ? "#f0a4a4" : "#9aa3b8";
@@ -1925,7 +1993,18 @@ class PaneState {
         const dx = x2 - x1, dy = y2 - y1;
         const L = Math.hypot(dx, dy) || 1;
         const ox = -dy / L * 8, oy = dx / L * 8;
-        ctx.fillText(String(e.w), mx + ox, my + oy);
+        // For edges with both a weight and a sidetrack, show "w | δ=N".
+        let label = String(e.w);
+        if (hasSidetrack) {
+          const delta = this.sidetrackLabels.get(eIdx);
+          if (allUnit) {
+            label = `δ=${delta}`;
+          } else {
+            label = `${e.w} · δ=${delta}`;
+          }
+          ctx.fillStyle = delta === 0 ? "#9aa3b8" : getCss("--edge-sidetrack");
+        }
+        ctx.fillText(label, mx + ox, my + oy);
       }
     }
     // Nodes on top.
