@@ -217,7 +217,9 @@ public class AStarShortestPath<V, E> extends BaseShortestPathAlgorithm<V, E>
                     // open list, since we discovered a shorter
                     // path to this node
                     closedList.remove(successor);
-                    openList.insert(fScore, vertexToHeapNodeMap.get(successor).getValue());
+                    AddressableHeap.Handle<Double, V> reopenedHandle =
+                        openList.insert(fScore, vertexToHeapNodeMap.get(successor).getValue());
+                    vertexToHeapNodeMap.put(successor, reopenedHandle);
                 } else { // It's in the open list
                     vertexToHeapNodeMap.get(successor).decreaseKey(fScore);
                 }
