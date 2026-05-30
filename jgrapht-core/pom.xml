@@ -91,6 +91,8 @@
                                 --add-exports org.jgrapht.core/org.jgrapht.perf.connectivity=ALL-UNNAMED
                                 --add-exports org.jgrapht.core/org.jgrapht.perf.flow=ALL-UNNAMED
                                 --add-exports org.jgrapht.core/org.jgrapht.perf.graph=ALL-UNNAMED
+                                --add-exports org.jgrapht.core/org.jgrapht.perf.isomorphism=ALL-UNNAMED
+                                --add-exports org.jgrapht.core/org.jgrapht.perf.isomorphism.jmh_generated=ALL-UNNAMED
                                 --add-exports org.jgrapht.core/org.jgrapht.perf.lca=ALL-UNNAMED
                                 --add-exports org.jgrapht.core/org.jgrapht.perf.matching=ALL-UNNAMED
                                 --add-exports org.jgrapht.core/org.jgrapht.perf.shortestpath=ALL-UNNAMED
