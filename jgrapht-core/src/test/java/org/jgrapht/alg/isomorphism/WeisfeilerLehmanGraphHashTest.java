@@ -15,13 +15,15 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR LGPL-2.1-or-later
  */
-package org.jgrapht.alg.hash;
+package org.jgrapht.alg.isomorphism;
 
 import org.jgrapht.*;
+import org.jgrapht.alg.isomorphism.WeisfeilerLehmanGraphHash.*;
 import org.jgrapht.graph.*;
 import org.junit.jupiter.api.*;
 
 import java.util.*;
+import java.util.function.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -365,5 +367,112 @@ public class WeisfeilerLehmanGraphHashTest
         for (String c : colors.values()) {
             assertEquals(64, c.length());
         }
+    }
+
+    @Test
+    public void vertexLabelFunctionFoldsIntoHash()
+    {
+        Graph<Integer, DefaultEdge> path =
+            undirected(new int[][] { { 0, 1 }, { 1, 2 } });
+        Function<Integer, String> uniform = v -> "x";
+        Function<Integer, String> distinct = v -> "v" + v;
+
+        String hUniform = new WeisfeilerLehmanGraphHash<>(
+            path, 3, uniform, null, ParallelEdgeRule.COUNT).getHash();
+        String hDistinct = new WeisfeilerLehmanGraphHash<>(
+            path, 3, distinct, null, ParallelEdgeRule.COUNT).getHash();
+        assertNotEquals(hUniform, hDistinct);
+
+        // distinct vertex labels break the path's end-symmetry: ends get different colours
+        Map<Integer, String> uniformColors = new WeisfeilerLehmanGraphHash<>(
+            path, 3, uniform, null, ParallelEdgeRule.COUNT).getVertexHashes();
+        assertEquals(uniformColors.get(0), uniformColors.get(2));
+        Map<Integer, String> distinctColors = new WeisfeilerLehmanGraphHash<>(
+            path, 3, distinct, null, ParallelEdgeRule.COUNT).getVertexHashes();
+        assertNotEquals(distinctColors.get(0), distinctColors.get(2));
+    }
+
+    @Test
+    public void edgeLabelFunctionFoldsIntoHash()
+    {
+        Graph<Integer, DefaultEdge> path =
+            undirected(new int[][] { { 0, 1 }, { 1, 2 } });
+        DefaultEdge e01 = path.getEdge(0, 1);
+        Function<DefaultEdge, String> twoColours = e -> e.equals(e01) ? "red" : "blue";
+        Function<DefaultEdge, String> uniform = e -> "x";
+
+        assertNotEquals(
+            new WeisfeilerLehmanGraphHash<>(path, 3, null, twoColours, ParallelEdgeRule.COUNT)
+                .getHash(),
+            new WeisfeilerLehmanGraphHash<>(path, 3, null, uniform, ParallelEdgeRule.COUNT)
+                .getHash());
+
+        // differently-labelled incident edges break the end-symmetry of the path
+        Map<Integer, String> colors = new WeisfeilerLehmanGraphHash<>(
+            path, 3, null, twoColours, ParallelEdgeRule.COUNT).getVertexHashes();
+        assertNotEquals(colors.get(0), colors.get(2));
+    }
+
+    @Test
+    public void parallelEdgeRuleChangesAggregation()
+    {
+        // path 0-1-2-3 with the 0-1 edge doubled: the graph still refines to distinct colours,
+        // but the neighbour multisets (COUNT) differ from the neighbour sets (IGNORE) on the way,
+        // so the per-round histograms — and thus the graph hash — differ between the two rules.
+        Graph<Integer, DefaultEdge> multi = new Multigraph<>(DefaultEdge.class);
+        for (int v = 0; v <= 3; v++) {
+            multi.addVertex(v);
+        }
+        multi.addEdge(0, 1);
+        multi.addEdge(0, 1);
+        multi.addEdge(1, 2);
+        multi.addEdge(2, 3);
+
+        String counted = new WeisfeilerLehmanGraphHash<>(
+            multi, 3, null, null, ParallelEdgeRule.COUNT).getHash();
+        String ignored = new WeisfeilerLehmanGraphHash<>(
+            multi, 3, null, null, ParallelEdgeRule.IGNORE).getHash();
+        assertNotEquals(counted, ignored);
+        // deterministic under IGNORE
+        assertEquals(ignored, new WeisfeilerLehmanGraphHash<>(
+            multi, 3, null, null, ParallelEdgeRule.IGNORE).getHash());
+    }
+
+    @Test
+    public void vertexHashSequencesStructure()
+    {
+        Graph<Integer, DefaultEdge> path =
+            undirected(new int[][] { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 4 } });
+        WeisfeilerLehmanGraphHash<Integer, DefaultEdge> wl =
+            new WeisfeilerLehmanGraphHash<>(path, 5);
+
+        Map<Integer, List<String>> seqs = wl.getVertexHashSequences();
+        int len = seqs.get(0).size();
+        assertTrue(len >= 1);
+        for (List<String> s : seqs.values()) {
+            assertEquals(len, s.size()); // all vertices share the round count
+        }
+
+        // the last entry of each sequence equals the final vertex hash
+        Map<Integer, String> finals = new WeisfeilerLehmanGraphHash<>(path, 5).getVertexHashes();
+        for (Integer v : path.vertexSet()) {
+            assertEquals(finals.get(v), seqs.get(v).get(len - 1));
+        }
+
+        // symmetric ends of the path share their entire colour sequence
+        assertEquals(seqs.get(0), seqs.get(4));
+
+        // both the map and the inner lists are unmodifiable
+        assertThrows(UnsupportedOperationException.class, () -> seqs.put(99, List.of()));
+        assertThrows(UnsupportedOperationException.class, () -> seqs.get(0).add("x"));
+    }
+
+    @Test
+    public void nullParallelEdgeRuleRejected()
+    {
+        Graph<Integer, DefaultEdge> g = undirected(new int[][] { { 0, 1 } });
+        assertThrows(
+            NullPointerException.class,
+            () -> new WeisfeilerLehmanGraphHash<>(g, 3, null, null, null));
     }
 }

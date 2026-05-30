@@ -15,10 +15,10 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR LGPL-2.1-or-later
  */
-package org.jgrapht.perf.hash;
+package org.jgrapht.perf.isomorphism;
 
 import org.jgrapht.*;
-import org.jgrapht.alg.hash.*;
+import org.jgrapht.alg.isomorphism.*;
 import org.jgrapht.generate.*;
 import org.jgrapht.graph.*;
 import org.jgrapht.graph.builder.*;
