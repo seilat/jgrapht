@@ -191,24 +191,19 @@ public class LouvainClustering<V, E> implements ClusteringAlgorithm<V>
         }
 
         if (totalWeight > 0d) {
+            CommunityAggregation.Level level =
+                new CommunityAggregation.Level(adjacency, selfLoop);
             while (true) {
-                int[] community = localMoving(adjacency, selfLoop, totalWeight);
-                int communities = countCommunities(community);
+                int[] community = localMoving(level, totalWeight);
+                int communities = CommunityAggregation.numberOfCommunities(community);
                 for (int v = 0; v < n; v++) {
                     vertexToNode[v] = community[vertexToNode[v]];
                 }
-                if (communities == adjacency.size()) {
+                if (communities == level.size()) {
                     // The local-moving phase merged nothing: converged.
                     break;
                 }
-                List<Map<Integer, Double>> aggregatedAdjacency = new ArrayList<>(communities);
-                for (int c = 0; c < communities; c++) {
-                    aggregatedAdjacency.add(new HashMap<>());
-                }
-                double[] aggregatedSelfLoop =
-                    aggregate(adjacency, selfLoop, community, communities, aggregatedAdjacency);
-                adjacency = aggregatedAdjacency;
-                selfLoop = aggregatedSelfLoop;
+                level = CommunityAggregation.aggregate(level, community);
             }
         }
 
@@ -225,20 +220,14 @@ public class LouvainClustering<V, E> implements ClusteringAlgorithm<V>
      * neighbouring community that maximises the modularity gain until no move improves the
      * objective. Returns a compacted community label (in {@code [0, k)}) for every node.
      */
-    private int[] localMoving(
-        List<Map<Integer, Double>> adjacency, double[] selfLoop, double totalWeight)
+    private int[] localMoving(CommunityAggregation.Level level, double totalWeight)
     {
-        final int n = adjacency.size();
-        double[] degree = new double[n];
-        double[] sigmaTot = new double[n];
+        final List<Map<Integer, Double>> adjacency = level.adjacency;
+        final int n = level.size();
+        double[] degree = CommunityAggregation.degrees(level);
+        double[] sigmaTot = degree.clone();
         int[] community = new int[n];
         for (int i = 0; i < n; i++) {
-            double d = 2d * selfLoop[i];
-            for (double w : adjacency.get(i).values()) {
-                d += w;
-            }
-            degree[i] = d;
-            sigmaTot[i] = d;
             community[i] = i;
         }
 
@@ -287,40 +276,7 @@ public class LouvainClustering<V, E> implements ClusteringAlgorithm<V>
                 }
             }
         }
-        return compact(community);
-    }
-
-    /**
-     * Contracts each community into a single node. Intra-community edges (and pre-existing
-     * self-loops) become the new node's self-loop; inter-community edges are summed into the new
-     * adjacency. Returns the self-loop weights of the aggregated nodes and fills
-     * {@code aggregatedAdjacency}. Degrees are conserved: the aggregated node degree equals the
-     * total degree of its members.
-     */
-    private double[] aggregate(
-        List<Map<Integer, Double>> adjacency, double[] selfLoop, int[] community, int communities,
-        List<Map<Integer, Double>> aggregatedAdjacency)
-    {
-        double[] aggregatedSelfLoop = new double[communities];
-        double[] internalAccumulator = new double[communities];
-        final int n = adjacency.size();
-        for (int u = 0; u < n; u++) {
-            int cu = community[u];
-            aggregatedSelfLoop[cu] += selfLoop[u];
-            for (Map.Entry<Integer, Double> en : adjacency.get(u).entrySet()) {
-                int cv = community[en.getKey()];
-                if (cu == cv) {
-                    // Each intra-community edge is seen once per direction; halved below.
-                    internalAccumulator[cu] += en.getValue();
-                } else {
-                    aggregatedAdjacency.get(cu).merge(cv, en.getValue(), Double::sum);
-                }
-            }
-        }
-        for (int c = 0; c < communities; c++) {
-            aggregatedSelfLoop[c] += internalAccumulator[c] / 2d;
-        }
-        return aggregatedSelfLoop;
+        return CommunityAggregation.compact(community);
     }
 
     /**
@@ -329,8 +285,8 @@ public class LouvainClustering<V, E> implements ClusteringAlgorithm<V>
      */
     private Clustering<V> buildClustering(List<V> indexToVertex, int[] vertexToNode)
     {
-        int[] compacted = compact(vertexToNode);
-        int k = countCommunities(compacted);
+        int[] compacted = CommunityAggregation.compact(vertexToNode);
+        int k = CommunityAggregation.numberOfCommunities(compacted);
         List<Set<V>> clusters = new ArrayList<>(k);
         for (int c = 0; c < k; c++) {
             clusters.add(new LinkedHashSet<>());
@@ -339,39 +295,5 @@ public class LouvainClustering<V, E> implements ClusteringAlgorithm<V>
             clusters.get(compacted[v]).add(indexToVertex.get(v));
         }
         return new ClusteringImpl<>(clusters);
-    }
-
-    /**
-     * Relabels arbitrary community ids to a dense range {@code [0, k)} preserving first-seen order.
-     */
-    private static int[] compact(int[] labels)
-    {
-        Map<Integer, Integer> remap = new HashMap<>();
-        int[] out = new int[labels.length];
-        int next = 0;
-        for (int i = 0; i < labels.length; i++) {
-            Integer mapped = remap.get(labels[i]);
-            if (mapped == null) {
-                mapped = next++;
-                remap.put(labels[i], mapped);
-            }
-            out[i] = mapped;
-        }
-        return out;
-    }
-
-    /**
-     * Number of distinct labels in a compacted label array (its maximum plus one, or zero if
-     * empty).
-     */
-    private static int countCommunities(int[] compactedLabels)
-    {
-        int max = -1;
-        for (int label : compactedLabels) {
-            if (label > max) {
-                max = label;
-            }
-        }
-        return max + 1;
     }
 }
