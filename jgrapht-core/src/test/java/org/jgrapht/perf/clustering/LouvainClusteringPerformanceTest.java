@@ -75,6 +75,12 @@ public class LouvainClusteringPerformanceTest
     }
 
     @Benchmark
+    public Clustering<Integer> leiden(ClusteringState state)
+    {
+        return new LeidenClustering<>(state.graph, new Random(state.seed)).getClustering();
+    }
+
+    @Benchmark
     public Clustering<Integer> labelPropagation(ClusteringState state)
     {
         return new LabelPropagationClustering<>(state.graph, new Random(state.seed)).getClustering();
