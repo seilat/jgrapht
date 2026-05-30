@@ -35,23 +35,52 @@ import java.util.*;
  * the histogram of vertex colours from every round into a single digest. The procedure is closely
  * related to {@link org.jgrapht.alg.color.ColorRefinementAlgorithm}, which computes the coarsest
  * stable colouring; here we instead retain the colour histogram of each round to build a
- * fingerprint.
+ * fingerprint. See B. Weisfeiler and A. Leman, "The reduction of a graph to canonical form and the
+ * algebra which appears therein", 1968, and N. Shervashidze et al., "Weisfeiler-Lehman graph
+ * kernels", JMLR 12, 2011.
  *
  * <p>
  * Equality of hashes is a <em>necessary but not sufficient</em> condition for isomorphism: a
  * mismatch proves the graphs are not isomorphic, but a match does not prove that they are (1-WL
- * cannot distinguish certain non-isomorphic graphs, e.g. two triangles versus a single hexagon when
- * both are regular). The hash is therefore well suited as a fast pre-filter or as a content key for
- * caching and deduplication, not as a decision procedure for isomorphism.
+ * cannot distinguish certain non-isomorphic graphs, e.g. a single 6-cycle versus two disjoint
+ * triangles, both 2-regular). The hash is therefore well suited as a fast pre-filter or as a
+ * content key for caching and deduplication, not as a decision procedure for isomorphism.
  *
  * <p>
- * In this first version vertices are initialised by their degree (in- and out-degree for directed
- * graphs) and edges are treated as unweighted and unlabelled. For directed graphs incoming and
- * outgoing neighbours are kept distinct, so reversing all edges generally changes the hash.
+ * <b>Scope and conventions (v1).</b>
+ * <ul>
+ * <li>Vertices are initialised by their degree (separately by in- and out-degree for directed
+ * graphs). Edges are treated as <em>unweighted and unlabelled</em>: edge weights do not affect the
+ * hash.</li>
+ * <li><b>Parallel edges are counted with multiplicity.</b> Each edge contributes one entry to a
+ * vertex's neighbour multiset, so two graphs differing only in the number of edges between the same
+ * pair of vertices generally hash differently. This intentionally differs from
+ * {@code ColorRefinementAlgorithm}, which deduplicates neighbours.</li>
+ * <li><b>Self-loops</b> are honoured. An undirected self-loop contributes the vertex's own colour
+ * once to its neighbour multiset (and is counted twice by {@code degreeOf} in the initial label,
+ * per the {@link Graph} contract); a directed self-loop contributes both an outgoing and an
+ * incoming entry.</li>
+ * <li>For directed graphs incoming and outgoing neighbours are kept distinct, so reversing all
+ * edges generally changes the hash. <b>Mixed graphs are rejected</b> (a mixed graph cannot be
+ * unambiguously classified as directed or undirected here).</li>
+ * </ul>
  *
  * <p>
- * The running time is $O(k \cdot (|V| + |E|) \log |V|)$ for {@code k} iterations, dominated by the
- * per-round sort of each vertex's neighbour multiset.
+ * Colour refinement is monotone and reaches a fixed point after at most $|V|$ rounds; once the
+ * partition stops getting finer, further iterations add no information. This implementation
+ * therefore aggregates the initial round and each refinement round up to {@code iterations}
+ * <em>or until the colouring stabilises, whichever comes first</em>. Consequently the hash is
+ * stable for any {@code iterations} value at or beyond convergence, and a large {@code iterations}
+ * never causes more than $|V|$ rounds of work.
+ *
+ * <p>
+ * The running time is $O(k \cdot (|V| + |E|))$ plus the per-round neighbour sorts, for {@code k}
+ * effective iterations.
+ *
+ * <p>
+ * Instances are effectively immutable: the only mutable state needed for hashing (a
+ * {@code MessageDigest}) is held per-thread, so concurrent calls &mdash; on the same instance or on
+ * separate instances &mdash; are safe.
  *
  * @param <V> the graph vertex type
  * @param <E> the graph edge type
@@ -66,20 +95,28 @@ public class WeisfeilerLehmanGraphHash<V, E>
     public static final int DEFAULT_ITERATIONS = 3;
 
     /**
-     * Number of hexadecimal characters retained from each digest. 16 hex chars (64 bits) keeps
-     * labels short while making accidental collisions negligible for practical graph sizes.
+     * Per-thread SHA-256 digest. {@link MessageDigest} is stateful and not thread-safe, so a
+     * {@link ThreadLocal} gives each thread its own instance; {@link MessageDigest#digest(byte[])}
+     * resets the digest after each call, making reuse within a thread safe.
      */
-    private static final int HASH_HEX_LENGTH = 16;
+    private static final ThreadLocal<MessageDigest> SHA_256 = ThreadLocal.withInitial(() -> {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 message digest not available", e);
+        }
+    });
 
     private final Graph<V, E> graph;
     private final int iterations;
     private final boolean directed;
-    private final MessageDigest digest;
 
     /**
      * Construct a new hasher with the {@link #DEFAULT_ITERATIONS default} number of iterations.
      *
      * @param graph the input graph
+     * @throws NullPointerException if {@code graph} is {@code null}
+     * @throws IllegalArgumentException if {@code graph} is a mixed graph
      */
     public WeisfeilerLehmanGraphHash(Graph<V, E> graph)
     {
@@ -90,9 +127,12 @@ public class WeisfeilerLehmanGraphHash<V, E>
      * Construct a new hasher.
      *
      * @param graph the input graph
-     * @param iterations the number of colour-refinement iterations (must be non-negative); zero
-     *        yields a hash of the degree histogram alone
-     * @throws IllegalArgumentException if {@code iterations} is negative
+     * @param iterations the maximum number of colour-refinement iterations (must be non-negative);
+     *        zero yields a hash of the degree histogram alone. Refinement may stop earlier once the
+     *        colouring stabilises.
+     * @throws NullPointerException if {@code graph} is {@code null}
+     * @throws IllegalArgumentException if {@code iterations} is negative or {@code graph} is a mixed
+     *         graph
      */
     public WeisfeilerLehmanGraphHash(Graph<V, E> graph, int iterations)
     {
@@ -100,13 +140,12 @@ public class WeisfeilerLehmanGraphHash<V, E>
         if (iterations < 0) {
             throw new IllegalArgumentException("iterations must be non-negative");
         }
-        this.iterations = iterations;
-        this.directed = graph.getType().isDirected();
-        try {
-            this.digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 message digest not available", e);
+        GraphType type = graph.getType();
+        if (type.isMixed()) {
+            throw new IllegalArgumentException("Mixed graphs are not supported");
         }
+        this.iterations = iterations;
+        this.directed = type.isDirected();
     }
 
     /**
@@ -114,39 +153,63 @@ public class WeisfeilerLehmanGraphHash<V, E>
      *
      * <p>
      * The hash aggregates, in a canonical (sorted) order, the vertex-colour histogram of the
-     * initial round and of every refinement round. It is invariant under isomorphism and under the
-     * insertion order of vertices and edges.
+     * initial round and of every refinement round (up to {@code iterations} or convergence). It is
+     * invariant under isomorphism and under the insertion order of vertices and edges.
      *
      * @return a hexadecimal hash string
      */
     public String getHash()
     {
-        Map<V, String> labels = initialLabels();
-
         StringBuilder fingerprint = new StringBuilder();
-        appendHistogram(fingerprint, 0, labels);
-        for (int round = 1; round <= iterations; round++) {
-            labels = refine(labels);
-            appendHistogram(fingerprint, round, labels);
-        }
+        computeColoring(fingerprint);
         return hashString(fingerprint.toString());
     }
 
     /**
-     * Compute the final per-vertex colour (subtree hash) after all refinement iterations.
+     * Compute the final per-vertex colour (subtree hash) after refinement.
      *
      * <p>
      * Each returned value is the Weisfeiler-Lehman colour of a vertex, i.e. a hash of the rooted
-     * subtree of radius {@code iterations} around it. Two vertices share a colour exactly when 1-WL
-     * cannot tell their neighbourhoods apart up to that radius.
+     * subtree around it up to the effective radius (the smaller of {@code iterations} and the
+     * convergence depth). Two vertices share a colour exactly when 1-WL cannot tell their
+     * neighbourhoods apart up to that radius.
      *
-     * @return a map from each vertex to its final colour hash
+     * @return an unmodifiable map from each vertex to its final colour hash
      */
     public Map<V, String> getVertexHashes()
     {
+        return Collections.unmodifiableMap(computeColoring(null));
+    }
+
+    /**
+     * Run colour refinement, optionally accumulating the per-round histogram fingerprint.
+     *
+     * <p>
+     * Stops after {@code iterations} rounds or as soon as a round fails to increase the number of
+     * colour classes (a fixed point: the partition is then stable). The converged round is not
+     * appended to the fingerprint, since it carries the same partition as the previous round.
+     *
+     * @param fingerprint a builder to append per-round histograms to, or {@code null} to skip
+     * @return the final colouring (vertex to colour hash)
+     */
+    private Map<V, String> computeColoring(StringBuilder fingerprint)
+    {
         Map<V, String> labels = initialLabels();
+        int classes = distinctCount(labels);
+        if (fingerprint != null) {
+            appendHistogram(fingerprint, 0, labels);
+        }
         for (int round = 1; round <= iterations; round++) {
-            labels = refine(labels);
+            Map<V, String> next = refine(labels);
+            int nextClasses = distinctCount(next);
+            if (nextClasses == classes) {
+                break; // converged: the partition did not get finer
+            }
+            labels = next;
+            classes = nextClasses;
+            if (fingerprint != null) {
+                appendHistogram(fingerprint, round, labels);
+            }
         }
         return labels;
     }
@@ -161,7 +224,8 @@ public class WeisfeilerLehmanGraphHash<V, E>
         Map<V, String> labels = HashMap.newHashMap(graph.vertexSet().size());
         for (V v : graph.vertexSet()) {
             String init = directed
-                ? graph.inDegreeOf(v) + "," + graph.outDegreeOf(v) : Integer.toString(graph.degreeOf(v));
+                ? graph.inDegreeOf(v) + "," + graph.outDegreeOf(v)
+                : Integer.toString(graph.degreeOf(v));
             labels.put(v, hashString(init));
         }
         return labels;
@@ -206,10 +270,24 @@ public class WeisfeilerLehmanGraphHash<V, E>
     }
 
     /**
-     * Append the canonical, sorted colour histogram of a round to the fingerprint builder.
+     * Number of distinct colours in a colouring.
+     *
+     * @param labels the colouring
+     * @return the number of colour classes
+     */
+    private int distinctCount(Map<V, String> labels)
+    {
+        return new HashSet<>(labels.values()).size();
+    }
+
+    /**
+     * Append the canonical, sorted colour histogram of a round to the fingerprint builder. The
+     * round index is tagged in so that rounds cannot alias; SHA-256 hex labels contain only the
+     * characters {@code 0-9a-f}, never the delimiters used here, so the serialisation is
+     * unambiguous.
      *
      * @param fingerprint the fingerprint under construction
-     * @param round the round index (tagged into the fingerprint so rounds cannot alias)
+     * @param round the round index
      * @param labels the colouring of this round
      */
     private void appendHistogram(StringBuilder fingerprint, int round, Map<V, String> labels)
@@ -219,23 +297,29 @@ public class WeisfeilerLehmanGraphHash<V, E>
             counts.merge(label, 1, Integer::sum);
         }
         fingerprint.append('R').append(round).append('{');
+        boolean first = true;
         for (Map.Entry<String, Integer> entry : counts.entrySet()) {
-            fingerprint.append(entry.getKey()).append(':').append(entry.getValue()).append(',');
+            if (!first) {
+                fingerprint.append(',');
+            }
+            fingerprint.append(entry.getKey()).append(':').append(entry.getValue());
+            first = false;
         }
         fingerprint.append('}');
     }
 
     /**
-     * Hash a string to a fixed-length hexadecimal digest.
+     * Hash a string to a hexadecimal SHA-256 digest. The full 256-bit digest is used for internal
+     * colour labels so that distinct neighbourhoods are not collapsed by truncation.
      *
      * @param s the input string
-     * @return the truncated SHA-256 digest as a hexadecimal string
+     * @return the SHA-256 digest as a 64-character hexadecimal string
      */
-    private String hashString(String s)
+    private static String hashString(String s)
     {
-        byte[] d = digest.digest(s.getBytes(StandardCharsets.UTF_8));
-        char[] hex = new char[HASH_HEX_LENGTH];
-        for (int i = 0; i < HASH_HEX_LENGTH / 2; i++) {
+        byte[] d = SHA_256.get().digest(s.getBytes(StandardCharsets.UTF_8));
+        char[] hex = new char[d.length * 2];
+        for (int i = 0; i < d.length; i++) {
             hex[2 * i] = Character.forDigit((d[i] >> 4) & 0xF, 16);
             hex[2 * i + 1] = Character.forDigit(d[i] & 0xF, 16);
         }

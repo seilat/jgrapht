@@ -219,4 +219,151 @@ public class WeisfeilerLehmanGraphHashTest
         assertThrows(
             NullPointerException.class, () -> new WeisfeilerLehmanGraphHash<Integer, DefaultEdge>(null));
     }
+
+    @Test
+    public void parallelEdgesCountedWithMultiplicity()
+    {
+        // a double edge between 0 and 1 must change the hash vs a single edge: parallel edges are
+        // counted with multiplicity (unlike ColorRefinementAlgorithm, which deduplicates).
+        Graph<Integer, DefaultEdge> doubled = new Multigraph<>(DefaultEdge.class);
+        Graph<Integer, DefaultEdge> single = new Multigraph<>(DefaultEdge.class);
+        for (int v = 0; v <= 2; v++) {
+            doubled.addVertex(v);
+            single.addVertex(v);
+        }
+        doubled.addEdge(0, 1);
+        doubled.addEdge(0, 1); // parallel
+        doubled.addEdge(1, 2);
+        single.addEdge(0, 1);
+        single.addEdge(1, 2);
+
+        assertNotEquals(
+            new WeisfeilerLehmanGraphHash<>(doubled).getHash(),
+            new WeisfeilerLehmanGraphHash<>(single).getHash());
+    }
+
+    @Test
+    public void undirectedSelfLoopHandled()
+    {
+        // a self-loop on vertex 0 is honoured and deterministic, and changes the hash vs no loop
+        Graph<Integer, DefaultEdge> withLoop = new Pseudograph<>(DefaultEdge.class);
+        Graph<Integer, DefaultEdge> noLoop = new Pseudograph<>(DefaultEdge.class);
+        for (int v = 0; v <= 2; v++) {
+            withLoop.addVertex(v);
+            noLoop.addVertex(v);
+        }
+        withLoop.addEdge(0, 1);
+        withLoop.addEdge(1, 2);
+        withLoop.addEdge(0, 0); // self-loop
+        noLoop.addEdge(0, 1);
+        noLoop.addEdge(1, 2);
+
+        String h = new WeisfeilerLehmanGraphHash<>(withLoop).getHash();
+        assertNotNull(h);
+        assertEquals(h, new WeisfeilerLehmanGraphHash<>(withLoop).getHash()); // deterministic
+        assertNotEquals(h, new WeisfeilerLehmanGraphHash<>(noLoop).getHash());
+    }
+
+    @Test
+    public void directedSelfLoopHandled()
+    {
+        Graph<Integer, DefaultEdge> withLoop = new DirectedPseudograph<>(DefaultEdge.class);
+        Graph<Integer, DefaultEdge> noLoop = new DirectedPseudograph<>(DefaultEdge.class);
+        for (int v = 0; v <= 2; v++) {
+            withLoop.addVertex(v);
+            noLoop.addVertex(v);
+        }
+        withLoop.addEdge(0, 1);
+        withLoop.addEdge(1, 2);
+        withLoop.addEdge(0, 0);
+        noLoop.addEdge(0, 1);
+        noLoop.addEdge(1, 2);
+
+        String h = new WeisfeilerLehmanGraphHash<>(withLoop).getHash();
+        assertNotNull(h);
+        assertEquals(h, new WeisfeilerLehmanGraphHash<>(withLoop).getHash());
+        assertNotEquals(h, new WeisfeilerLehmanGraphHash<>(noLoop).getHash());
+    }
+
+    @Test
+    public void edgeWeightsAreIgnored()
+    {
+        // v1 is unweighted: two structurally identical graphs differing only in weights hash equal
+        SimpleWeightedGraph<Integer, DefaultWeightedEdge> light =
+            new SimpleWeightedGraph<>(DefaultWeightedEdge.class);
+        SimpleWeightedGraph<Integer, DefaultWeightedEdge> heavy =
+            new SimpleWeightedGraph<>(DefaultWeightedEdge.class);
+        for (int v = 0; v <= 3; v++) {
+            light.addVertex(v);
+            heavy.addVertex(v);
+        }
+        int[][] edges = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 } };
+        for (int[] e : edges) {
+            light.setEdgeWeight(light.addEdge(e[0], e[1]), 1.0);
+            heavy.setEdgeWeight(heavy.addEdge(e[0], e[1]), 99.0);
+        }
+
+        assertEquals(
+            new WeisfeilerLehmanGraphHash<>(light).getHash(),
+            new WeisfeilerLehmanGraphHash<>(heavy).getHash());
+    }
+
+    @Test
+    public void isolatedVerticesHandled()
+    {
+        // mix of connected and isolated vertices must not crash and stays deterministic
+        Graph<Integer, DefaultEdge> g = undirected(new int[][] { { 0, 1 } }, 2, 3, 4);
+        String h = new WeisfeilerLehmanGraphHash<>(g).getHash();
+        assertNotNull(h);
+        assertEquals(h, new WeisfeilerLehmanGraphHash<>(g).getHash());
+        assertEquals(5, new WeisfeilerLehmanGraphHash<>(g).getVertexHashes().size());
+    }
+
+    @Test
+    public void hashIsStableBeyondConvergence()
+    {
+        // colour refinement reaches a fixed point; once stable, more iterations add no information,
+        // so the hash must be identical for any large iteration count (and never loop forever).
+        Graph<Integer, DefaultEdge> g =
+            undirected(new int[][] { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 4 } });
+        String converged = new WeisfeilerLehmanGraphHash<>(g, 1000).getHash();
+        assertEquals(converged, new WeisfeilerLehmanGraphHash<>(g, 50).getHash());
+        assertEquals(converged, new WeisfeilerLehmanGraphHash<>(g, Integer.MAX_VALUE).getHash());
+    }
+
+    @Test
+    public void directedIsomorphicGraphsHashEqual()
+    {
+        Graph<Integer, DefaultEdge> g1 = new SimpleDirectedGraph<>(DefaultEdge.class);
+        Graph<Integer, DefaultEdge> g2 = new SimpleDirectedGraph<>(DefaultEdge.class);
+        for (int v = 0; v <= 3; v++) {
+            g1.addVertex(v);
+            g2.addVertex(v + 10);
+        }
+        // directed path 0->1->2->3 vs relabelled 10->11->12->13 added in scrambled order
+        g1.addEdge(0, 1);
+        g1.addEdge(1, 2);
+        g1.addEdge(2, 3);
+        g2.addEdge(12, 13);
+        g2.addEdge(10, 11);
+        g2.addEdge(11, 12);
+
+        assertEquals(
+            new WeisfeilerLehmanGraphHash<>(g1).getHash(),
+            new WeisfeilerLehmanGraphHash<>(g2).getHash());
+    }
+
+    @Test
+    public void vertexHashesAreUnmodifiableAndFullLength()
+    {
+        Graph<Integer, DefaultEdge> g =
+            undirected(new int[][] { { 0, 1 }, { 1, 2 }, { 2, 0 } });
+        Map<Integer, String> colors = new WeisfeilerLehmanGraphHash<>(g).getVertexHashes();
+
+        assertThrows(UnsupportedOperationException.class, () -> colors.put(99, "x"));
+        // full SHA-256 hex (256 bits = 64 chars), not truncated, to avoid label collisions
+        for (String c : colors.values()) {
+            assertEquals(64, c.length());
+        }
+    }
 }
