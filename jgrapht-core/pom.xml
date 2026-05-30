@@ -88,6 +88,8 @@
                                     Ref: https://github.com/jgrapht/jgrapht/issues/1170
                                 -->
                                 --add-exports org.jgrapht.core/org.jgrapht.perf.clique=ALL-UNNAMED
+                                --add-exports org.jgrapht.core/org.jgrapht.perf.clustering=ALL-UNNAMED
+                                --add-exports org.jgrapht.core/org.jgrapht.perf.clustering.jmh_generated=ALL-UNNAMED
                                 --add-exports org.jgrapht.core/org.jgrapht.perf.connectivity=ALL-UNNAMED
                                 --add-exports org.jgrapht.core/org.jgrapht.perf.flow=ALL-UNNAMED
                                 --add-exports org.jgrapht.core/org.jgrapht.perf.graph=ALL-UNNAMED
