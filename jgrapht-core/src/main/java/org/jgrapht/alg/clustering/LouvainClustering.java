@@ -48,8 +48,10 @@ import java.util.*;
  * <p>
  * The algorithm runs on undirected graphs and supports edge weights; parallel edges are collapsed
  * by summing their weights and self-loops are honoured using the same conventions as
- * {@link UndirectedModularityMeasurer}. Its empirical running time is close to linear in the number
- * of edges, although no worst-case guarantee is provided.
+ * {@link UndirectedModularityMeasurer}. Edge weights must be non-negative (modularity is undefined
+ * for negative weights); a negative weight triggers an {@link IllegalArgumentException} when the
+ * clustering is computed. Its empirical running time is close to linear in the number of edges,
+ * although no worst-case guarantee is provided.
  *
  * <p>
  * The local-moving phase visits vertices in a random order, so two runs on the same graph may
@@ -126,7 +128,8 @@ public class LouvainClustering<V, E> implements ClusteringAlgorithm<V>
 
     /**
      * Returns the modularity of the computed clustering. The clustering is computed on first
-     * access. The modularity of a graph with no edges is defined here to be {@code 0}.
+     * access. The modularity of a graph with no positive total edge weight (no edges, or all edge
+     * weights {@code 0}) is defined here to be {@code 0}.
      *
      * @return the modularity of the clustering in the range $[-0.5, 1)$
      */
@@ -161,6 +164,9 @@ public class LouvainClustering<V, E> implements ClusteringAlgorithm<V>
             int u = vertexToIndex.get(graph.getEdgeSource(e));
             int v = vertexToIndex.get(graph.getEdgeTarget(e));
             double w = weighted ? graph.getEdgeWeight(e) : 1d;
+            if (w < 0d) {
+                throw new IllegalArgumentException("Edge weights must be non-negative");
+            }
             if (u == v) {
                 selfLoop[u] += w;
             } else {
@@ -207,8 +213,11 @@ public class LouvainClustering<V, E> implements ClusteringAlgorithm<V>
         }
 
         result = buildClustering(indexToVertex, vertexToNode);
-        modularity = graph.edgeSet().isEmpty() ? 0d
-            : new UndirectedModularityMeasurer<>(graph).modularity(result.getClusters());
+        // Guard on totalWeight, not edgeSet emptiness: a graph whose edges all have weight 0 has
+        // 2m == 0, which would make the measurer divide by zero and return NaN.
+        modularity = totalWeight > 0d
+            ? new UndirectedModularityMeasurer<>(graph).modularity(result.getClusters())
+            : 0d;
     }
 
     /**

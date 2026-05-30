@@ -192,18 +192,49 @@ public class LouvainClusteringTest
     }
 
     @Test
-    public void getModularityMatchesMeasurer()
+    public void modularityIsExactForTwoCliques()
     {
+        // Two K4 cliques joined by edge 3-4: m = 13, 2m = 26. The optimal 2-community partition
+        // (each clique) has Q = 2 * (2*6/26 - (13/26)^2) = 11/26. Pinning the value avoids a
+        // circular check against UndirectedModularityMeasurer (which getModularity delegates to).
         Graph<Integer, DefaultEdge> g = unweighted();
         addClique(g, 0, 1, 2, 3);
         addClique(g, 4, 5, 6, 7);
         g.addEdge(3, 4);
 
         LouvainClustering<Integer, DefaultEdge> alg = new LouvainClustering<>(g, new Random(SEED));
-        double reported = alg.getModularity();
-        double recomputed =
-            new UndirectedModularityMeasurer<>(g).modularity(alg.getClustering().getClusters());
-        assertEquals(recomputed, reported, 1e-12);
+        assertEquals(2, alg.getClustering().getNumberClusters());
+        assertEquals(11.0 / 26.0, alg.getModularity(), 1e-9);
+    }
+
+    @Test
+    public void zeroWeightEdgesGiveZeroModularityNotNaN()
+    {
+        // Regression: edges all of weight 0 => 2m == 0; modularity must be 0, not NaN (which a
+        // naive measurer call would produce by dividing by 2m).
+        Graph<Integer, DefaultEdge> g = weighted();
+        for (int i = 0; i < 4; i++) {
+            g.addVertex(i);
+        }
+        setEdge(g, 0, 1, 0d);
+        setEdge(g, 1, 2, 0d);
+        setEdge(g, 2, 3, 0d);
+
+        LouvainClustering<Integer, DefaultEdge> alg = new LouvainClustering<>(g, new Random(SEED));
+        assertEquals(0d, alg.getModularity(), 0d); // exact compare: fails on NaN
+        assertClusteringIsPartition(g, alg.getClustering());
+    }
+
+    @Test
+    public void negativeEdgeWeightIsRejected()
+    {
+        Graph<Integer, DefaultEdge> g = weighted();
+        g.addVertex(0);
+        g.addVertex(1);
+        setEdge(g, 0, 1, -1d);
+
+        LouvainClustering<Integer, DefaultEdge> alg = new LouvainClustering<>(g, new Random(SEED));
+        assertThrows(IllegalArgumentException.class, alg::getClustering);
     }
 
     @Test
