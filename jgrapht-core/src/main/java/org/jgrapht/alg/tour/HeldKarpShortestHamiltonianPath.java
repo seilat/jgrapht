@@ -19,7 +19,6 @@ package org.jgrapht.alg.tour;
 
 import org.jgrapht.*;
 import org.jgrapht.alg.interfaces.*;
-import org.jgrapht.graph.*;
 import org.jgrapht.util.*;
 
 import java.util.*;
@@ -108,9 +107,6 @@ public class HeldKarpShortestHamiltonianPath<V, E>
      * subset bitmask. Memory is the dominant constraint well before this ceiling.
      */
     public static final int HARD_MAX_VERTICES = 30;
-
-    private static final byte UNVISITED = -1;
-    private static final byte START_SENTINEL = -2;
 
     private final int maxVertices;
     private long statesExpanded;
@@ -321,173 +317,38 @@ public class HeldKarpShortestHamiltonianPath<V, E>
         List<V> indexList = mapping.getIndexList();
         Map<V, Integer> vertexMap = mapping.getVertexMap();
         final boolean directed = graph.getType().isDirected();
-        final int sourceIdx = source == null ? -1 : vertexMap.get(source);
-        final int targetIdx = target == null ? -1 : vertexMap.get(target);
 
-        double[][] cost = buildCostMatrix(graph, indexList, vertexMap, directed, n);
-
-        final int fullMask = (1 << n) - 1;
-        double[][] dp = new double[1 << n][n];
-        for (double[] row : dp) {
-            Arrays.fill(row, Double.POSITIVE_INFINITY);
-        }
-        byte[][] pred = new byte[1 << n][n];
-        for (byte[] row : pred) {
-            Arrays.fill(row, UNVISITED);
-        }
-        for (int v = 0; v < n; v++) {
-            if (sourceIdx >= 0 && v != sourceIdx) {
-                continue;
-            }
-            dp[1 << v][v] = approachCost == null ? 0d : approachCost.applyAsDouble(indexList.get(v));
-            pred[1 << v][v] = START_SENTINEL;
-            statesExpanded++;
-        }
-
-        for (int mask = 1; mask < (1 << n); mask++) {
-            for (int v = 0; v < n; v++) {
-                if (((mask >> v) & 1) == 0 || dp[mask][v] == Double.POSITIVE_INFINITY) {
-                    continue;
-                }
-                double base = dp[mask][v];
-                double[] costV = cost[v];
-                for (int u = 0; u < n; u++) {
-                    if (((mask >> u) & 1) != 0 || costV[u] == Double.POSITIVE_INFINITY) {
-                        continue;
-                    }
-                    int newMask = mask | (1 << u);
-                    double candidate = base + costV[u];
-                    if (candidate < dp[newMask][u]) {
-                        dp[newMask][u] = candidate;
-                        pred[newMask][u] = (byte) v;
-                        statesExpanded++;
-                    }
-                }
-            }
-        }
-
-        int bestEnd = -1;
-        double bestTotal = Double.POSITIVE_INFINITY;
-        for (int v = 0; v < n; v++) {
-            if (targetIdx >= 0 && v != targetIdx) {
-                continue;
-            }
-            if (dp[fullMask][v] == Double.POSITIVE_INFINITY) {
-                continue;
-            }
-            double total = dp[fullMask][v]
-                + (departureCost == null ? 0d : departureCost.applyAsDouble(indexList.get(v)));
-            if (total < bestTotal) {
-                bestTotal = total;
-                bestEnd = v;
-            }
-        }
-        if (bestEnd == -1) {
+        double[][] cost = HeldKarpSubsetDp.costMatrix(graph, vertexMap, directed, false, n);
+        long[] states = new long[1];
+        int[] sequence = HeldKarpSubsetDp.solve(
+            cost, n, false, true, source == null ? -1 : vertexMap.get(source),
+            target == null ? -1 : vertexMap.get(target), bias(indexList, approachCost, n),
+            bias(indexList, departureCost, n), states);
+        statesExpanded = states[0];
+        if (sequence == null) {
             return HamiltonianPathSearchResult.provenAbsent(statesExpanded);
         }
-
-        List<V> vertices = reconstruct(pred, indexList, fullMask, bestEnd);
-        return HamiltonianPathSearchResult
-            .found(buildWeightedPath(graph, vertices), statesExpanded);
-    }
-
-    /**
-     * Builds the {@code n x n} minimum edge-weight matrix used by the DP. {@code cost[i][j]} is the
-     * smallest weight of an edge usable to step from {@code i} to {@code j} (an outgoing edge in a
-     * directed graph, an incident edge in an undirected one), or {@link Double#POSITIVE_INFINITY}
-     * when no such edge exists. Self-loops are ignored.
-     */
-    private double[][] buildCostMatrix(
-        Graph<V, E> graph, List<V> indexList, Map<V, Integer> vertexMap, boolean directed, int n)
-    {
-        double[][] cost = new double[n][n];
-        for (double[] row : cost) {
-            Arrays.fill(row, Double.POSITIVE_INFINITY);
-        }
-        for (E e : graph.edgeSet()) {
-            V a = graph.getEdgeSource(e);
-            V b = graph.getEdgeTarget(e);
-            if (a.equals(b)) {
-                continue; // self-loop cannot extend a simple path
-            }
-            int i = vertexMap.get(a);
-            int j = vertexMap.get(b);
-            double w = graph.getEdgeWeight(e);
-            if (w < cost[i][j]) {
-                cost[i][j] = w;
-            }
-            if (!directed && w < cost[j][i]) {
-                cost[j][i] = w;
-            }
-        }
-        return cost;
-    }
-
-    /**
-     * Reconstructs the vertex sequence of an optimal path ending at {@code bestEnd} by walking the
-     * predecessor table back to the start sentinel.
-     */
-    private List<V> reconstruct(byte[][] pred, List<V> indexList, int fullMask, int bestEnd)
-    {
-        List<Integer> reversed = new ArrayList<>();
-        int mask = fullMask;
-        int cur = bestEnd;
-        while (cur != -1) {
-            reversed.add(cur);
-            byte p = pred[mask][cur];
-            mask ^= (1 << cur);
-            cur = (p == START_SENTINEL) ? -1 : (p & 0xFF);
-        }
-        Collections.reverse(reversed);
-        List<V> vertices = new ArrayList<>(reversed.size());
-        for (int idx : reversed) {
+        List<V> vertices = new ArrayList<>(sequence.length);
+        for (int idx : sequence) {
             vertices.add(indexList.get(idx));
         }
-        return vertices;
+        return HamiltonianPathSearchResult
+            .found(HeldKarpSubsetDp.buildPath(graph, vertices, false), statesExpanded);
     }
 
     /**
-     * Materialises a vertex sequence as a {@link GraphWalk}, selecting for each consecutive pair the
-     * minimum-weight connecting edge (matching the DP's cost matrix), so that the reported weight
-     * equals the optimised tour weight even in multigraphs.
+     * Materialises a per-vertex cost function as a {@code double[]} bias indexed by vertex position,
+     * or {@code null} when no function is supplied.
      */
-    private GraphPath<V, E> buildWeightedPath(Graph<V, E> graph, List<V> vertices)
+    private double[] bias(List<V> indexList, ToDoubleFunction<V> cost, int n)
     {
-        final int n = vertices.size();
-        if (n == 1) {
-            V only = vertices.get(0);
-            return new GraphWalk<>(
-                graph, only, only, Collections.singletonList(only), Collections.emptyList(), 0d);
+        if (cost == null) {
+            return null;
         }
-        List<E> edges = new ArrayList<>(n - 1);
-        double weight = 0d;
-        for (int i = 1; i < n; i++) {
-            V u = vertices.get(i - 1);
-            V v = vertices.get(i);
-            E edge = minWeightEdge(graph, u, v);
-            edges.add(edge);
-            weight += graph.getEdgeWeight(edge);
+        double[] bias = new double[n];
+        for (int i = 0; i < n; i++) {
+            bias[i] = cost.applyAsDouble(indexList.get(i));
         }
-        return new GraphWalk<>(
-            graph, vertices.get(0), vertices.get(n - 1), vertices, edges, weight);
-    }
-
-    /**
-     * Returns the minimum-weight edge connecting {@code u} to {@code v} (respecting direction in a
-     * directed graph). At least one such edge is guaranteed to exist because the DP only follows
-     * finite-cost steps.
-     */
-    private E minWeightEdge(Graph<V, E> graph, V u, V v)
-    {
-        E best = null;
-        double bestWeight = Double.POSITIVE_INFINITY;
-        for (E e : graph.getAllEdges(u, v)) {
-            double w = graph.getEdgeWeight(e);
-            if (best == null || w < bestWeight) {
-                best = e;
-                bestWeight = w;
-            }
-        }
-        return best;
+        return bias;
     }
 }
