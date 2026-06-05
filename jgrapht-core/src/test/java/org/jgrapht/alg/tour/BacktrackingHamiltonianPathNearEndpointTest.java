@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Deterministic tests for {@link BacktrackingHamiltonianPath#getPathNearEndpoints}: endpoint
+ * Deterministic tests for the {@code BacktrackingHamiltonianPath.getPathWithBest*} family: endpoint
  * selection that minimises caller-supplied approach/departure costs among feasible endpoint pairs,
  * with ranked fallback past infeasible cheaper pairs.
  */
@@ -94,7 +94,7 @@ public class BacktrackingHamiltonianPathNearEndpointTest
         Graph<Integer, DefaultEdge> g = undirectedPath(5);
         ToDoubleFunction<Integer> approach = v -> Math.abs(v - 2); // source near vertex 2
         ToDoubleFunction<Integer> departure = v -> Math.abs(v - 3); // target near vertex 3
-        assertEndpoints(g, solver().getPathNearEndpoints(g, approach, departure), 0, 4);
+        assertEndpoints(g, solver().getPathWithBestEndpoints(g, approach, departure), 0, 4);
     }
 
     @Test
@@ -103,7 +103,7 @@ public class BacktrackingHamiltonianPathNearEndpointTest
         Graph<Integer, DefaultEdge> g = undirectedPath(5);
         // start free, target nearest vertex 3 -> feasible ends are {0,4}; 4 is closer to 3
         ToDoubleFunction<Integer> departure = v -> Math.abs(v - 3);
-        assertEndpoints(g, solver().getPathNearEndpoints(g, null, departure), null, 4);
+        assertEndpoints(g, solver().getPathWithBestEnd(g, departure), null, 4);
     }
 
     @Test
@@ -112,7 +112,7 @@ public class BacktrackingHamiltonianPathNearEndpointTest
         Graph<Integer, DefaultEdge> g = undirectedPath(5);
         // end free, source nearest vertex 1 -> feasible starts are {0,4}; 0 is closer to 1
         ToDoubleFunction<Integer> approach = v -> Math.abs(v - 1);
-        assertEndpoints(g, solver().getPathNearEndpoints(g, approach, null), 0, null);
+        assertEndpoints(g, solver().getPathWithBestStart(g, approach), 0, null);
     }
 
     @Test
@@ -122,14 +122,7 @@ public class BacktrackingHamiltonianPathNearEndpointTest
         // only feasible directed endpoints are start 0, end 3
         ToDoubleFunction<Integer> approach = v -> Math.abs(v - 1);
         ToDoubleFunction<Integer> departure = v -> Math.abs(v - 2);
-        assertEndpoints(g, solver().getPathNearEndpoints(g, approach, departure), 0, 3);
-    }
-
-    @Test
-    public void bothCostsNullDelegatesToUnconstrainedSearch()
-    {
-        Graph<Integer, DefaultEdge> g = undirectedPath(5);
-        assertHamiltonianPath(g, solver().getPathNearEndpoints(g, null, null));
+        assertEndpoints(g, solver().getPathWithBestEndpoints(g, approach, departure), 0, 3);
     }
 
     @Test
@@ -143,7 +136,7 @@ public class BacktrackingHamiltonianPathNearEndpointTest
         g.addEdge(0, 1);
         g.addEdge(2, 3);
         ToDoubleFunction<Integer> cost = v -> v;
-        assertProvenAbsent(solver().getPathNearEndpoints(g, cost, cost));
+        assertProvenAbsent(solver().getPathWithBestEndpoints(g, cost, cost));
     }
 
     @Test
@@ -151,7 +144,7 @@ public class BacktrackingHamiltonianPathNearEndpointTest
     {
         Graph<Integer, DefaultEdge> g = new SimpleGraph<>(DefaultEdge.class);
         g.addVertex(7);
-        assertEndpoints(g, solver().getPathNearEndpoints(g, v -> 0d, v -> 0d), 7, 7);
+        assertEndpoints(g, solver().getPathWithBestEndpoints(g, v -> 0d, v -> 0d), 7, 7);
     }
 
     /**
@@ -166,7 +159,7 @@ public class BacktrackingHamiltonianPathNearEndpointTest
         ToDoubleFunction<Integer> approach = v -> Math.abs(v - 2);
         ToDoubleFunction<Integer> departure = v -> Math.abs(v - 3);
         HamiltonianPathSearchResult<Integer, DefaultEdge> result =
-            solver().getPathNearEndpoints(g, approach, departure, 1);
+            solver().getPathWithBestEndpoints(g, approach, departure, 1);
         assertEquals(Status.ABORTED, result.getStatus());
     }
 
@@ -176,13 +169,13 @@ public class BacktrackingHamiltonianPathNearEndpointTest
         Graph<Integer, DefaultEdge> g = undirectedPath(5);
         ToDoubleFunction<Integer> approach = v -> Math.abs(v - 2);
         ToDoubleFunction<Integer> departure = v -> Math.abs(v - 3);
-        assertEndpoints(g, solver().getPathNearEndpoints(g, approach, departure, 100), 0, 4);
+        assertEndpoints(g, solver().getPathWithBestEndpoints(g, approach, departure, 100), 0, 4);
     }
 
     @Test
     public void statesExpandedAggregatesAcrossInternalSearches()
     {
-        // 0-1-2-3-4: the nearest pair (2,3) is infeasible, so getPathNearEndpoints runs the
+        // 0-1-2-3-4: the nearest pair (2,3) is infeasible, so getPathWithBestEndpoints runs the
         // existence guard plus several ranked sub-searches; getStatesExpanded must reflect the
         // total, hence be at least as large as a single unconstrained search.
         Graph<Integer, DefaultEdge> g = undirectedPath(5);
@@ -190,7 +183,7 @@ public class BacktrackingHamiltonianPathNearEndpointTest
         ToDoubleFunction<Integer> departure = v -> Math.abs(v - 3);
 
         BacktrackingHamiltonianPath<Integer, DefaultEdge> near = solver();
-        near.getPathNearEndpoints(g, approach, departure);
+        near.getPathWithBestEndpoints(g, approach, departure);
         long aggregate = near.getStatesExpanded();
 
         BacktrackingHamiltonianPath<Integer, DefaultEdge> single = solver();
@@ -213,13 +206,13 @@ public class BacktrackingHamiltonianPathNearEndpointTest
             ToDoubleFunction<Integer> badCost = v -> v == 0 ? bad : 1.0;
             assertThrows(
                 IllegalArgumentException.class,
-                () -> solver().getPathNearEndpoints(g, badCost, null));
+                () -> solver().getPathWithBestStart(g, badCost));
             assertThrows(
                 IllegalArgumentException.class,
-                () -> solver().getPathNearEndpoints(g, null, badCost));
+                () -> solver().getPathWithBestEnd(g, badCost));
             assertThrows(
                 IllegalArgumentException.class,
-                () -> solver().getPathNearEndpoints(g, badCost, v -> 1.0));
+                () -> solver().getPathWithBestEndpoints(g, badCost, v -> 1.0));
         }
     }
 
@@ -229,12 +222,21 @@ public class BacktrackingHamiltonianPathNearEndpointTest
         Graph<Integer, DefaultEdge> g = undirectedPath(3);
         assertThrows(
             NullPointerException.class,
-            () -> solver().getPathNearEndpoints(null, v -> 0d, v -> 0d));
+            () -> solver().getPathWithBestEndpoints(null, v -> 0d, v -> 0d));
         assertThrows(
             IllegalArgumentException.class,
-            () -> solver().getPathNearEndpoints(g, v -> 0d, v -> 0d, 0));
+            () -> solver().getPathWithBestEndpoints(g, v -> 0d, v -> 0d, 0));
         assertThrows(
             IllegalArgumentException.class,
-            () -> solver().getPathNearEndpoints(g, v -> 0d, v -> 0d, -3));
+            () -> solver().getPathWithBestEndpoints(g, v -> 0d, v -> 0d, -3));
+        // explicit overloads reject a null cost function instead of treating it as a free endpoint
+        assertThrows(
+            NullPointerException.class, () -> solver().getPathWithBestStart(g, null));
+        assertThrows(
+            NullPointerException.class, () -> solver().getPathWithBestEnd(g, null));
+        assertThrows(
+            NullPointerException.class, () -> solver().getPathWithBestEndpoints(g, null, v -> 0d));
+        assertThrows(
+            NullPointerException.class, () -> solver().getPathWithBestEndpoints(g, v -> 0d, null));
     }
 }

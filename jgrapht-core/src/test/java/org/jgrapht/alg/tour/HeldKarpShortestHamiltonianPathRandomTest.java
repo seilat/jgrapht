@@ -109,7 +109,7 @@ public class HeldKarpShortestHamiltonianPathRandomTest
         ToDoubleFunction<Integer> ap = v -> approach[v];
         ToDoubleFunction<Integer> dep = v -> departure[v];
         checkNavigation(
-            graph, solver.getShortestPathNearEndpoints(graph, ap, dep),
+            graph, solver.getShortestPathWithBestEndpoints(graph, ap, dep),
             bruteForce(graph, null, null, ap, dep), approach, departure);
     }
 

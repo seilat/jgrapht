@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * Deterministic tests for {@link HeldKarpShortestHamiltonianPath}: the minimum-weight (path-TSP)
  * objective, its endpoint-constrained variants, and the navigation-oriented
- * {@code getShortestPathNearEndpoints}. Expected optima are computed by hand for small weighted
+ * {@code getShortestPathWithBest*}. Expected optima are computed by hand for small weighted
  * graphs.
  */
 public class HeldKarpShortestHamiltonianPathTest
@@ -155,7 +155,7 @@ public class HeldKarpShortestHamiltonianPathTest
         ToDoubleFunction<Integer> approach = v -> v == 0 ? 10d : 0d;
         ToDoubleFunction<Integer> departure = v -> v == 2 ? 0d : 10d;
         HamiltonianPathSearchResult<Integer, DefaultWeightedEdge> r =
-            solver().getShortestPathNearEndpoints(g, approach, departure);
+            solver().getShortestPathWithBestEndpoints(g, approach, departure);
         assertHamiltonianPath(g, r);
         GraphPath<Integer, DefaultWeightedEdge> path = r.getPath().orElseThrow();
         // optimum is the heavier tour 1-0-2 (tour weight 6) because it minimises the TOTAL
@@ -166,11 +166,35 @@ public class HeldKarpShortestHamiltonianPathTest
     }
 
     @Test
-    public void navigationWithBothCostsNullEqualsFreeSearch()
+    public void navigationSingleEndpointFamily()
     {
         Graph<Integer, DefaultWeightedEdge> g = weightedTriangle();
-        assertEquals(
-            3.0, weightOf(solver().getShortestPathNearEndpoints(g, null, null)), EPS);
+        // free end, approach favours starting at 1: cheapest total is the path starting at 1
+        ToDoubleFunction<Integer> approach = v -> v == 1 ? 0d : 10d;
+        HamiltonianPathSearchResult<Integer, DefaultWeightedEdge> fromStart =
+            solver().getShortestPathWithBestStart(g, approach);
+        assertHamiltonianPath(g, fromStart);
+        assertEquals(1, fromStart.getPath().orElseThrow().getStartVertex());
+
+        // free start, departure favours ending at 2
+        ToDoubleFunction<Integer> departure = v -> v == 2 ? 0d : 10d;
+        HamiltonianPathSearchResult<Integer, DefaultWeightedEdge> toEnd =
+            solver().getShortestPathWithBestEnd(g, departure);
+        assertHamiltonianPath(g, toEnd);
+        assertEquals(2, toEnd.getPath().orElseThrow().getEndVertex());
+    }
+
+    @Test
+    public void navigationNullCostRejected()
+    {
+        Graph<Integer, DefaultWeightedEdge> g = weightedTriangle();
+        assertThrows(
+            NullPointerException.class, () -> solver().getShortestPathWithBestStart(g, null));
+        assertThrows(
+            NullPointerException.class, () -> solver().getShortestPathWithBestEnd(g, null));
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> solver().getShortestPathWithBestEndpoints(g, v -> Double.NaN, v -> 0d));
     }
 
     @Test

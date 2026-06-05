@@ -104,7 +104,7 @@ public final class WeightedHamiltonianPathDemo
 
         HamiltonianPathSearchResult<String, DefaultWeightedEdge> r =
             new HeldKarpShortestHamiltonianPath<String, DefaultWeightedEdge>()
-                .getShortestPathNearEndpoints(roads, approachCost, departureCost);
+                .getShortestPathWithBestEndpoints(roads, approachCost, departureCost);
         GraphPath<String, DefaultWeightedEdge> tour = r.getPath().orElseThrow();
         double total = tour.getWeight() + approachCost.applyAsDouble(tour.getStartVertex())
             + departureCost.applyAsDouble(tour.getEndVertex());

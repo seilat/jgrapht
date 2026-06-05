@@ -53,9 +53,10 @@ import java.util.function.*;
  *
  * <p>
  * For navigation-style queries where the endpoints are not fixed but should be cheap to reach and
- * leave, {@link #getPathNearEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)} chooses the
- * endpoint pair that minimises caller-supplied approach and departure costs among all pairs that
- * admit a Hamiltonian path.
+ * leave, {@link #getPathWithBestEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)} (and its
+ * single-endpoint cousins {@link #getPathWithBestStart} and {@link #getPathWithBestEnd}) choose the
+ * endpoints that minimise caller-supplied approach and departure costs among all endpoint choices
+ * that admit a Hamiltonian path.
  *
  * <p>
  * This implementation is a straightforward exact DFS / backtracking solver for Hamiltonian
@@ -151,9 +152,8 @@ public class BacktrackingHamiltonianPath<V, E>
      * of every {@code getPath} invocation.
      *
      * <p>
-     * After a {@link #getPathNearEndpoints(Graph, java.util.function.ToDoubleFunction,
-     * java.util.function.ToDoubleFunction)} call, which performs several internal searches, the
-     * value is the sum of the states explored across all of them.
+     * After a {@code getPathWithBest*} call, which performs several internal searches, the value is
+     * the sum of the states explored across all of them.
      *
      * <p>
      * This value is intended for diagnostics and benchmarking, similar to
@@ -265,76 +265,61 @@ public class BacktrackingHamiltonianPath<V, E>
     }
 
     /**
-     * Computes a Hamiltonian path whose two endpoints are chosen to minimise the off-tour travel
-     * needed to enter the tour at its first vertex and to leave it from its last vertex.
+     * Computes a Hamiltonian path whose two endpoints are chosen to minimise the total off-tour
+     * travel needed to enter the tour at its first vertex and to leave it from its last vertex.
      *
      * <p>
      * This is a convenience variant for navigation-style queries: you are positioned somewhere and
-     * want to visit every vertex of {@code graph}, entering the tour at whichever vertex is
-     * cheapest to reach and leaving from whichever vertex is cheapest to depart towards your
-     * destination. The two cost functions supply, per vertex {@code v}, the cost of starting the
-     * tour at {@code v} ({@code approachCost}) and of ending the tour at {@code v}
-     * ({@code departureCost}); how those costs are computed (straight-line distance to an external
-     * point, a precomputed shortest-path distance in the same graph, a lookup table, ...) is
-     * entirely up to the caller. Because the costs are supplied per vertex, the source and target
-     * being approached need not be vertices of {@code graph} at all.
+     * want to visit every vertex of {@code graph}, entering the tour at whichever vertex is cheapest
+     * to reach and leaving from whichever vertex is cheapest to depart towards your destination. The
+     * two cost functions supply, per vertex {@code v}, the cost of starting the tour at {@code v}
+     * ({@code approachCost}) and of ending the tour at {@code v} ({@code departureCost}); how those
+     * costs are computed (straight-line distance to an external point, a precomputed shortest-path
+     * distance in the same graph, a lookup table, ...) is entirely up to the caller. Because the
+     * costs are supplied per vertex, the source and target being approached need not be vertices of
+     * {@code graph} at all. To leave one endpoint free, use {@link #getPathWithBestStart} (free end)
+     * or {@link #getPathWithBestEnd} (free start) instead.
      *
      * <p>
-     * Either cost function may be {@code null} to leave that endpoint unconstrained:
-     * <ul>
-     * <li>{@code approachCost == null}: the start vertex is free; only the end vertex is chosen to
-     * minimise {@code departureCost}.</li>
-     * <li>{@code departureCost == null}: the end vertex is free; only the start vertex is chosen to
-     * minimise {@code approachCost}.</li>
-     * <li>both {@code null}: the search is unconstrained and this is equivalent to
-     * {@link #getPath(Graph)}.</li>
-     * </ul>
-     *
-     * <p>
-     * Candidate endpoint pairs are tried in ascending order of total off-tour cost
-     * ({@code approachCost(a) + departureCost(b)}) until one yields a Hamiltonian path; that path
-     * is returned. Because endpoint selection is decoupled from path existence, the single nearest
-     * pair may not admit a Hamiltonian path even when another pair does, so this method keeps
-     * trying in cost order rather than giving up after the nearest pair. The returned path
-     * therefore minimises the off-tour legs <em>among endpoint pairs that admit a Hamiltonian
-     * path</em>; it does <em>not</em> minimise the weight of the tour itself, which is a separate,
-     * NP-hard optimisation problem.
+     * Candidate ordered endpoint pairs are tried in ascending order of total off-tour cost
+     * ({@code approachCost(a) + departureCost(b)}) until one yields a Hamiltonian path; that path is
+     * returned. Because endpoint selection is decoupled from path existence, the single cheapest
+     * pair may not admit a Hamiltonian path even when another pair does, so the search keeps trying
+     * in cost order rather than giving up after the cheapest pair. The returned path therefore
+     * minimises the off-tour legs <em>among endpoint pairs that admit a Hamiltonian path</em>; it
+     * does <em>not</em> minimise the weight of the tour itself, which is a separate, NP-hard
+     * optimisation problem (see {@code HeldKarpShortestHamiltonianPath} for the weight-optimal
+     * variant).
      *
      * <p>
      * The result is {@link HamiltonianPathSearchResult.Status#PATH_FOUND} for the cheapest feasible
      * endpoint pair, or {@link HamiltonianPathSearchResult.Status#PROVEN_ABSENT} when no feasible
-     * endpoint pair exists (equivalently, when the graph has no Hamiltonian path at all, since the
-     * cost-function modes enumerate every endpoint possibility). Ties in total cost are broken
-     * deterministically by vertex iteration order.
-     *
-     * <p>
-     * When both cost functions are supplied the method materialises all {@code n * (n - 1)} ordered
-     * endpoint pairs and tries them in ascending cost order; with a single cost function the
-     * candidates are the {@code n} single endpoints. Each candidate triggers a full (worst-case
+     * endpoint pair exists (equivalently, when the graph has no Hamiltonian path at all, since all
+     * {@code n * (n - 1)} ordered endpoint pairs are enumerated). Ties in total cost are broken
+     * deterministically by vertex iteration order. Each candidate pair triggers a full (worst-case
      * exponential) Hamiltonian path search, so the worst case is a quadratic number of exponential
-     * searches; in practice the leading existence check rejects hopeless graphs in one search and a
-     * feasible pair is usually found early. See the {@code maxEndpointAttempts} overload to bound
-     * how many candidates are attempted. The cost functions must return finite values for every
+     * searches; in practice a leading existence check rejects hopeless graphs in one search and a
+     * feasible pair is usually found early. The cost functions must return finite values for every
      * vertex; a {@code NaN} or infinite cost is rejected with an {@link IllegalArgumentException}.
      *
      * @param graph the input graph
-     * @param approachCost cost of starting the tour at a given vertex, or {@code null} to leave the
-     *        start endpoint free
-     * @param departureCost cost of ending the tour at a given vertex, or {@code null} to leave the
-     *        end endpoint free
+     * @param approachCost cost of starting the tour at a given vertex
+     * @param departureCost cost of ending the tour at a given vertex
      * @return a {@link HamiltonianPathSearchResult} describing the outcome
-     * @throws NullPointerException if {@code graph} is {@code null}
+     * @throws NullPointerException if any argument is {@code null}
      * @throws IllegalArgumentException if the graph is empty or not directed/undirected, or a cost
      *         function returns a non-finite value for some vertex
      */
-    public HamiltonianPathSearchResult<V, E> getPathNearEndpoints(
+    public HamiltonianPathSearchResult<V, E> getPathWithBestEndpoints(
         Graph<V, E> graph, ToDoubleFunction<V> approachCost, ToDoubleFunction<V> departureCost)
     {
-        return getPathNearEndpoints(graph, approachCost, departureCost, Integer.MAX_VALUE);
+        Objects.requireNonNull(approachCost, "approachCost must not be null");
+        Objects.requireNonNull(departureCost, "departureCost must not be null");
+        return nearEndpoints(graph, approachCost, departureCost, Integer.MAX_VALUE);
     }
 
     /**
-     * Bounded variant of {@link #getPathNearEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)}
+     * Bounded variant of {@link #getPathWithBestEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)}
      * that tries at most {@code maxEndpointAttempts} candidate endpoint pairs, in ascending cost
      * order, before giving up.
      *
@@ -349,16 +334,74 @@ public class BacktrackingHamiltonianPath<V, E>
      * may be infeasible.
      *
      * @param graph the input graph
-     * @param approachCost cost of starting the tour at a vertex, or {@code null} for a free start
-     * @param departureCost cost of ending the tour at a vertex, or {@code null} for a free end
+     * @param approachCost cost of starting the tour at a given vertex
+     * @param departureCost cost of ending the tour at a given vertex
      * @param maxEndpointAttempts the maximum number of candidate endpoint pairs to try; must be
      *        positive
      * @return a {@link HamiltonianPathSearchResult} describing the outcome
-     * @throws NullPointerException if {@code graph} is {@code null}
-     * @throws IllegalArgumentException if {@code maxEndpointAttempts} is not positive, or the graph
-     *         is empty or not directed/undirected
+     * @throws NullPointerException if {@code graph} or either cost function is {@code null}
+     * @throws IllegalArgumentException if {@code maxEndpointAttempts} is not positive, the graph is
+     *         empty or not directed/undirected, or a cost function returns a non-finite value
      */
-    public HamiltonianPathSearchResult<V, E> getPathNearEndpoints(
+    public HamiltonianPathSearchResult<V, E> getPathWithBestEndpoints(
+        Graph<V, E> graph, ToDoubleFunction<V> approachCost, ToDoubleFunction<V> departureCost,
+        int maxEndpointAttempts)
+    {
+        Objects.requireNonNull(approachCost, "approachCost must not be null");
+        Objects.requireNonNull(departureCost, "departureCost must not be null");
+        return nearEndpoints(graph, approachCost, departureCost, maxEndpointAttempts);
+    }
+
+    /**
+     * Computes a Hamiltonian path whose first vertex is chosen to minimise the caller-supplied
+     * {@code approachCost}, with the end vertex left free. This is the free-end specialisation of
+     * {@link #getPathWithBestEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)}; the candidates
+     * are the {@code n} single start vertices, tried in ascending {@code approachCost} order until
+     * one admits a Hamiltonian path.
+     *
+     * @param graph the input graph
+     * @param approachCost cost of starting the tour at a given vertex
+     * @return a {@link HamiltonianPathSearchResult} describing the outcome
+     * @throws NullPointerException if {@code graph} or {@code approachCost} is {@code null}
+     * @throws IllegalArgumentException if the graph is empty or not directed/undirected, or
+     *         {@code approachCost} returns a non-finite value for some vertex
+     */
+    public HamiltonianPathSearchResult<V, E> getPathWithBestStart(
+        Graph<V, E> graph, ToDoubleFunction<V> approachCost)
+    {
+        Objects.requireNonNull(approachCost, "approachCost must not be null");
+        return nearEndpoints(graph, approachCost, null, Integer.MAX_VALUE);
+    }
+
+    /**
+     * Computes a Hamiltonian path whose last vertex is chosen to minimise the caller-supplied
+     * {@code departureCost}, with the start vertex left free. This is the free-start specialisation
+     * of {@link #getPathWithBestEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)}; the
+     * candidates are the {@code n} single end vertices, tried in ascending {@code departureCost}
+     * order until one admits a Hamiltonian path.
+     *
+     * @param graph the input graph
+     * @param departureCost cost of ending the tour at a given vertex
+     * @return a {@link HamiltonianPathSearchResult} describing the outcome
+     * @throws NullPointerException if {@code graph} or {@code departureCost} is {@code null}
+     * @throws IllegalArgumentException if the graph is empty or not directed/undirected, or
+     *         {@code departureCost} returns a non-finite value for some vertex
+     */
+    public HamiltonianPathSearchResult<V, E> getPathWithBestEnd(
+        Graph<V, E> graph, ToDoubleFunction<V> departureCost)
+    {
+        Objects.requireNonNull(departureCost, "departureCost must not be null");
+        return nearEndpoints(graph, null, departureCost, Integer.MAX_VALUE);
+    }
+
+    /**
+     * Shared implementation of the {@code getPathWithBest*} family. Exactly one of
+     * {@code approachCost} / {@code departureCost} is {@code null} for the single-endpoint variants;
+     * both are non-null for the paired variant. The internal {@code null}-as-free-endpoint
+     * convention is not exposed: every public entry point supplies an explicit, non-null cost
+     * function for each endpoint it constrains.
+     */
+    private HamiltonianPathSearchResult<V, E> nearEndpoints(
         Graph<V, E> graph, ToDoubleFunction<V> approachCost, ToDoubleFunction<V> departureCost,
         int maxEndpointAttempts)
     {
@@ -419,8 +462,8 @@ public class BacktrackingHamiltonianPath<V, E>
     }
 
     /**
-     * Builds the candidate endpoint list for {@link #getPathNearEndpoints}, sorted ascending by
-     * total off-tour cost with vertex iteration order as a deterministic tie-breaker. When only
+     * Builds the candidate endpoint list for the {@code getPathWithBest*} family, sorted ascending
+     * by total off-tour cost with vertex iteration order as a deterministic tie-breaker. When only
      * one cost function is supplied the candidates are single vertices (the other endpoint is
      * left free); when both are supplied the candidates are ordered vertex pairs with distinct
      * endpoints.
@@ -509,6 +552,36 @@ public class BacktrackingHamiltonianPath<V, E>
             throw new IllegalArgumentException("maxStates must be positive, got " + maxStates);
         }
         return search(graph, maxStates, null, null);
+    }
+
+    /**
+     * Endpoint-constrained counterpart of {@link #searchWithStateLimit(Graph, long)}: searches for
+     * a Hamiltonian path that starts at {@code source} and ends at {@code target} under an upper
+     * bound on the number of DFS states explored. The structural prechecks run before the bounded
+     * DFS and are not counted against the budget. The result distinguishes a found path, a proven
+     * absence (the bounded search completed and no such path exists), and
+     * {@link HamiltonianPathSearchResult.Status#ABORTED} when the search hits its budget before
+     * completing.
+     *
+     * @param graph the input graph
+     * @param source the required first vertex of the path
+     * @param target the required last vertex of the path
+     * @param maxStates the maximum number of DFS states the search may explore; must be positive
+     * @return a {@link HamiltonianPathSearchResult} describing the outcome
+     * @throws NullPointerException if {@code graph}, {@code source}, or {@code target} is
+     *         {@code null}
+     * @throws IllegalArgumentException if {@code maxStates} is not positive, the graph is empty or
+     *         not directed/undirected, or an endpoint is not a vertex of {@code graph}
+     */
+    public HamiltonianPathSearchResult<V, E> searchWithStateLimitBetween(
+        Graph<V, E> graph, V source, V target, long maxStates)
+    {
+        Objects.requireNonNull(source, "source must not be null");
+        Objects.requireNonNull(target, "target must not be null");
+        if (maxStates <= 0L) {
+            throw new IllegalArgumentException("maxStates must be positive, got " + maxStates);
+        }
+        return search(graph, maxStates, source, target);
     }
 
     /**

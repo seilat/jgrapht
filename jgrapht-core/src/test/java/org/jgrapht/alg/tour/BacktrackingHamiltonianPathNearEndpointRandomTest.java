@@ -30,8 +30,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Cross-validates {@link BacktrackingHamiltonianPath#getPathNearEndpoints} against a brute-force
- * oracle on small random graphs. Per-vertex costs are assigned from random permutations so that
+ * Cross-validates the {@code BacktrackingHamiltonianPath.getPathWithBest*} family against a
+ * brute-force oracle on small random graphs. Per-vertex costs are assigned from random permutations
+ * so that
  * every candidate endpoint pair has a distinct total cost; the unique minimum-cost feasible pair
  * is therefore unambiguous, letting the test assert the method returns a valid Hamiltonian path
  * with exactly those endpoints (or proves absence when no endpoint pair is feasible). All three
@@ -154,9 +155,15 @@ public class BacktrackingHamiltonianPathNearEndpointRandomTest
         Graph<Integer, DefaultEdge> graph, String mode, ToDoubleFunction<Integer> approach,
         ToDoubleFunction<Integer> departure, Integer expectedStart, Integer expectedEnd)
     {
-        HamiltonianPathSearchResult<Integer, DefaultEdge> result =
-            new BacktrackingHamiltonianPath<Integer, DefaultEdge>()
-                .getPathNearEndpoints(graph, approach, departure);
+        BacktrackingHamiltonianPath<Integer, DefaultEdge> solver = new BacktrackingHamiltonianPath<>();
+        HamiltonianPathSearchResult<Integer, DefaultEdge> result;
+        if (approach != null && departure != null) {
+            result = solver.getPathWithBestEndpoints(graph, approach, departure);
+        } else if (approach != null) {
+            result = solver.getPathWithBestStart(graph, approach);
+        } else {
+            result = solver.getPathWithBestEnd(graph, departure);
+        }
 
         boolean expectFound = expectedStart != null || expectedEnd != null;
         assertEquals(

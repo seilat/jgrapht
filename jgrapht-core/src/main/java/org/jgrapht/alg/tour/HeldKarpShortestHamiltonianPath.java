@@ -77,12 +77,14 @@ import java.util.function.*;
  * In addition to the free-endpoint {@link #getPath(Graph)}, the class offers endpoint-constrained
  * variants ({@link #getPathFrom(Graph, Object)}, {@link #getPathTo(Graph, Object)},
  * {@link #getPathBetween(Graph, Object, Object)}) that fix the first and/or last vertex, and a
- * navigation-oriented variant
- * {@link #getShortestPathNearEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)} that, given
- * caller-supplied per-vertex approach and departure costs, returns the tour minimising the
- * <em>total</em> journey cost {@code approach(a) + weight(a … b) + departure(b)}. The latter is
- * the exact, weight-optimal counterpart of
- * {@link BacktrackingHamiltonianPath#getPathNearEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)};
+ * navigation-oriented family
+ * {@link #getShortestPathWithBestEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)} (with
+ * single-endpoint cousins {@link #getShortestPathWithBestStart} and
+ * {@link #getShortestPathWithBestEnd}) that, given caller-supplied per-vertex approach and departure
+ * costs, returns the tour minimising the <em>total</em> journey cost
+ * {@code approach(a) + weight(a … b) + departure(b)}. That family is the exact, weight-optimal
+ * counterpart of
+ * {@link BacktrackingHamiltonianPath#getPathWithBestEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)};
  * it is realised by the classic super-source / super-sink reduction, folded into the DP by biasing
  * each start state by its approach cost and each terminal state by its departure cost (rather than
  * by materialising dummy vertices).
@@ -243,18 +245,18 @@ public class HeldKarpShortestHamiltonianPath<V, E>
      * {@code approachCost(a) + weight(a … b) + departureCost(b)}, where {@code a} and {@code b}
      * are the (freely chosen) first and last vertices of the tour. This is the weight-optimal,
      * navigation-oriented counterpart of
-     * {@link BacktrackingHamiltonianPath#getPathNearEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)}:
+     * {@link BacktrackingHamiltonianPath#getPathWithBestEndpoints(Graph, ToDoubleFunction, ToDoubleFunction)}:
      * rather than only minimising the off-tour legs among feasible endpoint pairs, it minimises the
-     * approach leg, the full tour weight, and the departure leg jointly.
+     * approach leg, the full tour weight, and the departure leg jointly, in a single dynamic program.
      *
      * <p>
      * The two cost functions supply, per vertex {@code v}, the cost of starting the tour at
      * {@code v} ({@code approachCost}) and of ending it at {@code v} ({@code departureCost}); how
      * those are computed (straight-line distance to an external position, a precomputed
      * shortest-path distance, a lookup table, ...) is up to the caller, so the source and target
-     * being approached need not be vertices of {@code graph}. Either function may be {@code null} to
-     * leave that leg free (cost {@code 0}); if both are {@code null} this reduces to
-     * {@link #getPath(Graph)}.
+     * being approached need not be vertices of {@code graph}. To leave one leg free, use
+     * {@link #getShortestPathWithBestStart} (free end) or {@link #getShortestPathWithBestEnd} (free
+     * start). The cost functions must return finite values.
      *
      * <p>
      * The returned {@link GraphPath} is the optimal tour itself; its {@link GraphPath#getWeight()
@@ -262,18 +264,58 @@ public class HeldKarpShortestHamiltonianPath<V, E>
      * caller can recover from its own cost functions and the path's endpoints).
      *
      * @param graph the input graph
-     * @param approachCost cost of starting the tour at a vertex, or {@code null} for a free start
-     * @param departureCost cost of ending the tour at a vertex, or {@code null} for a free end
+     * @param approachCost cost of starting the tour at a vertex
+     * @param departureCost cost of ending the tour at a vertex
      * @return a {@link HamiltonianPathSearchResult} with the total-cost-optimal tour, or
      *         {@code PROVEN_ABSENT}
-     * @throws NullPointerException if {@code graph} is {@code null}
-     * @throws IllegalArgumentException if the graph is empty, not directed/undirected, or exceeds
-     *         the vertex ceiling
+     * @throws NullPointerException if any argument is {@code null}
+     * @throws IllegalArgumentException if the graph is empty, not directed/undirected, exceeds the
+     *         vertex ceiling, or a cost function returns a non-finite value
      */
-    public HamiltonianPathSearchResult<V, E> getShortestPathNearEndpoints(
+    public HamiltonianPathSearchResult<V, E> getShortestPathWithBestEndpoints(
         Graph<V, E> graph, ToDoubleFunction<V> approachCost, ToDoubleFunction<V> departureCost)
     {
+        Objects.requireNonNull(approachCost, "approachCost must not be null");
+        Objects.requireNonNull(departureCost, "departureCost must not be null");
         return solve(graph, null, null, approachCost, departureCost);
+    }
+
+    /**
+     * Total-cost-optimal tour with a free end vertex: minimises
+     * {@code approachCost(a) + weight(a … b)} over all start vertices {@code a} and end vertices
+     * {@code b}. See {@link #getShortestPathWithBestEndpoints} for the full description.
+     *
+     * @param graph the input graph
+     * @param approachCost cost of starting the tour at a vertex
+     * @return a {@link HamiltonianPathSearchResult} with the optimal tour, or {@code PROVEN_ABSENT}
+     * @throws NullPointerException if {@code graph} or {@code approachCost} is {@code null}
+     * @throws IllegalArgumentException if the graph is empty, not directed/undirected, exceeds the
+     *         vertex ceiling, or {@code approachCost} returns a non-finite value
+     */
+    public HamiltonianPathSearchResult<V, E> getShortestPathWithBestStart(
+        Graph<V, E> graph, ToDoubleFunction<V> approachCost)
+    {
+        Objects.requireNonNull(approachCost, "approachCost must not be null");
+        return solve(graph, null, null, approachCost, null);
+    }
+
+    /**
+     * Total-cost-optimal tour with a free start vertex: minimises
+     * {@code weight(a … b) + departureCost(b)} over all start vertices {@code a} and end vertices
+     * {@code b}. See {@link #getShortestPathWithBestEndpoints} for the full description.
+     *
+     * @param graph the input graph
+     * @param departureCost cost of ending the tour at a vertex
+     * @return a {@link HamiltonianPathSearchResult} with the optimal tour, or {@code PROVEN_ABSENT}
+     * @throws NullPointerException if {@code graph} or {@code departureCost} is {@code null}
+     * @throws IllegalArgumentException if the graph is empty, not directed/undirected, exceeds the
+     *         vertex ceiling, or {@code departureCost} returns a non-finite value
+     */
+    public HamiltonianPathSearchResult<V, E> getShortestPathWithBestEnd(
+        Graph<V, E> graph, ToDoubleFunction<V> departureCost)
+    {
+        Objects.requireNonNull(departureCost, "departureCost must not be null");
+        return solve(graph, null, null, null, departureCost);
     }
 
     /**
@@ -344,7 +386,8 @@ public class HeldKarpShortestHamiltonianPath<V, E>
 
     /**
      * Materialises a per-vertex cost function as a {@code double[]} bias indexed by vertex position,
-     * or {@code null} when no function is supplied.
+     * or {@code null} when no function is supplied. A non-finite cost would corrupt the DP
+     * comparisons, so it is rejected with an {@link IllegalArgumentException}.
      */
     private double[] bias(List<V> indexList, ToDoubleFunction<V> cost, int n)
     {
@@ -353,7 +396,12 @@ public class HeldKarpShortestHamiltonianPath<V, E>
         }
         double[] bias = new double[n];
         for (int i = 0; i < n; i++) {
-            bias[i] = cost.applyAsDouble(indexList.get(i));
+            double c = cost.applyAsDouble(indexList.get(i));
+            if (!Double.isFinite(c)) {
+                throw new IllegalArgumentException(
+                    "endpoint cost must be finite, got " + c);
+            }
+            bias[i] = c;
         }
         return bias;
     }
