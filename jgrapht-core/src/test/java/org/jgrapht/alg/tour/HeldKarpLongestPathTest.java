@@ -127,6 +127,18 @@ public class HeldKarpLongestPathTest
     }
 
     @Test
+    public void betweenSameVertexReturnsSingleton()
+    {
+        Graph<Integer, DefaultWeightedEdge> g = new SimpleWeightedGraph<>(DefaultWeightedEdge.class);
+        for (int i = 0; i < 3; i++) {
+            g.addVertex(i);
+        }
+        g.setEdgeWeight(g.addEdge(0, 1), 5);
+        g.setEdgeWeight(g.addEdge(1, 2), 5);
+        assertSimplePath(g, solver().getPathBetween(g, 1, 1), 0.0, 1, 1);
+    }
+
+    @Test
     public void betweenReturnsNullWhenDisconnected()
     {
         Graph<Integer, DefaultWeightedEdge> g = new SimpleWeightedGraph<>(DefaultWeightedEdge.class);

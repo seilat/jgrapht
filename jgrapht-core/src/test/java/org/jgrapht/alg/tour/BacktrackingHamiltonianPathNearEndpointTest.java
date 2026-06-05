@@ -29,6 +29,7 @@ import static org.jgrapht.alg.tour.HamiltonianPathValidator.assertHamiltonianPat
 import static org.jgrapht.alg.tour.HamiltonianPathValidator.assertProvenAbsent;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Deterministic tests for {@link BacktrackingHamiltonianPath#getPathNearEndpoints}: endpoint
@@ -176,6 +177,28 @@ public class BacktrackingHamiltonianPathNearEndpointTest
         ToDoubleFunction<Integer> approach = v -> Math.abs(v - 2);
         ToDoubleFunction<Integer> departure = v -> Math.abs(v - 3);
         assertEndpoints(g, solver().getPathNearEndpoints(g, approach, departure, 100), 0, 4);
+    }
+
+    @Test
+    public void statesExpandedAggregatesAcrossInternalSearches()
+    {
+        // 0-1-2-3-4: the nearest pair (2,3) is infeasible, so getPathNearEndpoints runs the
+        // existence guard plus several ranked sub-searches; getStatesExpanded must reflect the
+        // total, hence be at least as large as a single unconstrained search.
+        Graph<Integer, DefaultEdge> g = undirectedPath(5);
+        ToDoubleFunction<Integer> approach = v -> Math.abs(v - 2);
+        ToDoubleFunction<Integer> departure = v -> Math.abs(v - 3);
+
+        BacktrackingHamiltonianPath<Integer, DefaultEdge> near = solver();
+        near.getPathNearEndpoints(g, approach, departure);
+        long aggregate = near.getStatesExpanded();
+
+        BacktrackingHamiltonianPath<Integer, DefaultEdge> single = solver();
+        single.getPath(g);
+        long oneSearch = single.getStatesExpanded();
+
+        assertTrue(aggregate >= oneSearch && aggregate > 0,
+            () -> "aggregate=" + aggregate + " should be >= single search=" + oneSearch);
     }
 
     @Test

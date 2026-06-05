@@ -67,9 +67,11 @@ import java.util.function.*;
  *
  * <p>
  * The algorithm is exact and deterministic. It supports directed and undirected graphs, arbitrary
- * (including negative) edge weights, and tolerates parallel edges and self-loops: self-loops are
- * ignored because they cannot extend a simple path, and among parallel edges between the same pair
- * of vertices the minimum-weight edge is used, both in the DP and in the reconstructed path.
+ * finite (including negative) edge weights, and tolerates parallel edges and self-loops: self-loops
+ * are ignored because they cannot extend a simple path, and among parallel edges between the same
+ * pair of vertices the minimum-weight edge is used, both in the DP and in the reconstructed path.
+ * Non-finite edge weights ({@code NaN} or infinities) are rejected with an
+ * {@link IllegalArgumentException}.
  *
  * <p>
  * In addition to the free-endpoint {@link #getPath(Graph)}, the class offers endpoint-constrained
@@ -103,8 +105,12 @@ public class HeldKarpShortestHamiltonianPath<V, E>
     public static final int DEFAULT_MAX_VERTICES = 18;
 
     /**
-     * Hard upper bound on the number of vertices, fixed by the algorithm's use of an {@code int}
-     * subset bitmask. Memory is the dominant constraint well before this ceiling.
+     * Hard upper bound on the number of vertices. The subset bitmask is a signed {@code int}, so
+     * {@code 1 << 31} would overflow to a negative value; {@code 30} is the largest safe exponent.
+     * In practice memory is the binding constraint far below this ceiling: the {@code double} DP
+     * table needs about {@code 8 * n * 2^n} bytes (roughly 38&nbsp;MB at {@code n = 18},
+     * 800&nbsp;MB at {@code n = 22}, 3.4&nbsp;GB at {@code n = 24}), so raising the ceiling much
+     * beyond {@link #DEFAULT_MAX_VERTICES} risks {@link OutOfMemoryError}.
      */
     public static final int HARD_MAX_VERTICES = 30;
 

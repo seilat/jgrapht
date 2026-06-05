@@ -50,10 +50,11 @@ import java.util.*;
  * Applications include finding the best partial route when full coverage is impossible (no
  * Hamiltonian path exists), the longest reliable chain in a network, or the longest snake-style
  * path in a grid. The algorithm is exact and deterministic, supports directed and undirected graphs
- * and arbitrary (including negative) edge weights, and tolerates parallel edges and self-loops
- * (self-loops are ignored; among parallel edges the maximum-weight edge is used). With negative
- * weights the maximum-weight simple path may be a single vertex (the empty-edge path of weight
- * {@code 0}).
+ * and arbitrary finite (including negative) edge weights, and tolerates parallel edges and
+ * self-loops (self-loops are ignored; among parallel edges the maximum-weight edge is used).
+ * Non-finite edge weights ({@code NaN} or infinities) are rejected with an
+ * {@link IllegalArgumentException}. With negative weights the maximum-weight simple path may be a
+ * single vertex (the empty-edge path of weight {@code 0}).
  *
  * @param <V> the graph vertex type
  * @param <E> the graph edge type

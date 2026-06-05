@@ -59,6 +59,12 @@ final class HeldKarpSubsetDp
      * is kept when {@code maximize} is {@code false} and the maximum-weight edge when it is
      * {@code true}, so the matrix is consistent with the optimisation sense. Absent edges are
      * {@link Double#POSITIVE_INFINITY} and self-loops are ignored.
+     *
+     * <p>
+     * Edge weights must be finite: an infinite weight would be indistinguishable from the
+     * absent-edge sentinel, and {@code NaN} would corrupt the {@code min}/{@code max} reductions
+     * and the DP comparisons. Non-finite weights are therefore rejected with an
+     * {@link IllegalArgumentException}.
      */
     static <V, E> double[][] costMatrix(
         Graph<V, E> graph, Map<V, Integer> vertexMap, boolean directed, boolean maximize, int n)
@@ -73,9 +79,13 @@ final class HeldKarpSubsetDp
             if (a.equals(b)) {
                 continue; // self-loop cannot extend a simple path
             }
+            double w = graph.getEdgeWeight(e);
+            if (!Double.isFinite(w)) {
+                throw new IllegalArgumentException(
+                    "edge weights must be finite; found " + w + " on edge " + e);
+            }
             int i = vertexMap.get(a);
             int j = vertexMap.get(b);
-            double w = graph.getEdgeWeight(e);
             cost[i][j] = pick(cost[i][j], w, maximize);
             if (!directed) {
                 cost[j][i] = pick(cost[j][i], w, maximize);

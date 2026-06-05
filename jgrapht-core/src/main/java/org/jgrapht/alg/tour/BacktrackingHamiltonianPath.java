@@ -132,6 +132,10 @@ public class BacktrackingHamiltonianPath<V, E>
     private long statesExpanded;
     private long maxStatesLimit;
     private boolean aborted;
+    // Per-search scratch buffers for the reachability BFS, reused across the (exponentially many)
+    // DFS nodes of a single search to avoid an allocation at every node.
+    private boolean[] reachableScratch;
+    private int[] reachQueueScratch;
 
     /**
      * Constructs a new instance.
@@ -145,6 +149,11 @@ public class BacktrackingHamiltonianPath<V, E>
      * {@link #getPath(Graph)}. A "state" corresponds to one entry into the recursive extension
      * routine, i.e. one partial path the solver considered. The counter is reset at the start
      * of every {@code getPath} invocation.
+     *
+     * <p>
+     * After a {@link #getPathNearEndpoints(Graph, java.util.function.ToDoubleFunction,
+     * java.util.function.ToDoubleFunction)} call, which performs several internal searches, the
+     * value is the sum of the states explored across all of them.
      *
      * <p>
      * This value is intended for diagnostics and benchmarking, similar to
@@ -351,14 +360,23 @@ public class BacktrackingHamiltonianPath<V, E>
             return getPath(graph);
         }
         // If the graph has no Hamiltonian path at all, no endpoint choice can produce one. This
-        // also validates the graph and short-circuits the otherwise quadratic pair enumeration on
-        // hopeless graphs.
+        // existence check is a single search that short-circuits the otherwise quadratic pair
+        // enumeration on hopeless graphs (trying every infeasible pair would run one exponential
+        // search per pair). It costs one extra search when a path does exist, which is a sound
+        // trade for avoiding the n^2-search blow-up when none does.
+        //
+        // statesExpanded is accumulated across every internal search so that getStatesExpanded()
+        // reflects the total work of this call, not just the last sub-search.
+        long totalStates = 0L;
         HamiltonianPathSearchResult<V, E> existence = getPath(graph);
+        totalStates += statesExpanded;
         if (existence.getPath().isEmpty()) {
+            statesExpanded = totalStates;
             return existence;
         }
         List<V> vertices = new ArrayList<>(graph.vertexSet());
         if (vertices.size() == 1) {
+            statesExpanded = totalStates;
             return existence; // the lone vertex is the only possible endpoint
         }
 
@@ -367,7 +385,8 @@ public class BacktrackingHamiltonianPath<V, E>
         int attempts = 0;
         for (RankedEndpoints<V> candidate : ranked) {
             if (attempts >= maxEndpointAttempts) {
-                return HamiltonianPathSearchResult.aborted(statesExpanded);
+                statesExpanded = totalStates;
+                return HamiltonianPathSearchResult.aborted(totalStates);
             }
             attempts++;
             HamiltonianPathSearchResult<V, E> result;
@@ -378,11 +397,14 @@ public class BacktrackingHamiltonianPath<V, E>
             } else {
                 result = getPathTo(graph, candidate.end);
             }
+            totalStates += statesExpanded;
             if (result.getPath().isPresent()) {
-                return result;
+                statesExpanded = totalStates;
+                return HamiltonianPathSearchResult.found(result.getPath().get(), totalStates);
             }
         }
-        return HamiltonianPathSearchResult.provenAbsent(statesExpanded);
+        statesExpanded = totalStates;
+        return HamiltonianPathSearchResult.provenAbsent(totalStates);
     }
 
     /**
@@ -517,6 +539,8 @@ public class BacktrackingHamiltonianPath<V, E>
 
         int[] pathIdx = new int[n];
         boolean[] visited = new boolean[n];
+        reachableScratch = new boolean[n];
+        reachQueueScratch = new int[n];
 
         final int startLo = sourceIdx >= 0 ? sourceIdx : 0;
         final int startHi = sourceIdx >= 0 ? sourceIdx : n - 1;
@@ -789,9 +813,9 @@ public class BacktrackingHamiltonianPath<V, E>
         if (remaining == 0) {
             return true;
         }
-        int n = visited.length;
-        boolean[] reached = new boolean[n];
-        int[] queue = new int[n];
+        boolean[] reached = reachableScratch;
+        int[] queue = reachQueueScratch;
+        Arrays.fill(reached, false);
         int head = 0;
         int tail = 0;
         queue[tail++] = start;

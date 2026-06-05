@@ -46,9 +46,10 @@ import java.util.*;
  * Complexity is {@code O(n^2 * 2^n)} time and {@code O(n * 2^n)} space. As with the shortest-path
  * solver, graphs with more than {@link #getMaxVertices()} vertices are refused with an
  * {@link IllegalArgumentException}. The algorithm is exact and deterministic, supports directed and
- * undirected graphs and arbitrary (including negative) edge weights, and tolerates parallel edges
- * and self-loops (self-loops are ignored; among parallel edges the maximum-weight edge is used in
- * both the DP and the reconstructed path).
+ * undirected graphs and arbitrary finite (including negative) edge weights, and tolerates parallel
+ * edges and self-loops (self-loops are ignored; among parallel edges the maximum-weight edge is
+ * used in both the DP and the reconstructed path). Non-finite edge weights ({@code NaN} or
+ * infinities) are rejected with an {@link IllegalArgumentException}.
  *
  * @param <V> the graph vertex type
  * @param <E> the graph edge type

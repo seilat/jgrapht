@@ -136,6 +136,19 @@ public class HeldKarpLongestHamiltonianPathTest
     }
 
     @Test
+    public void negativeInfinityEdgeWeightRejected()
+    {
+        // maximize mode must reject -Infinity (it would collide with the DP's "worst" sentinel)
+        Graph<Integer, DefaultWeightedEdge> g = new SimpleWeightedGraph<>(DefaultWeightedEdge.class);
+        for (int i = 0; i < 3; i++) {
+            g.addVertex(i);
+        }
+        g.setEdgeWeight(g.addEdge(0, 1), Double.NEGATIVE_INFINITY);
+        g.setEdgeWeight(g.addEdge(1, 2), 1);
+        assertThrows(IllegalArgumentException.class, () -> solver().getPath(g));
+    }
+
+    @Test
     public void undirectedRandomWeightedGraphsMatchOracle()
     {
         Random random = new Random(SEED);

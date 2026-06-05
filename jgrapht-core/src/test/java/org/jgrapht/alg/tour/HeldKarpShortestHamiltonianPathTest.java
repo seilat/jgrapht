@@ -203,6 +203,25 @@ public class HeldKarpShortestHamiltonianPathTest
     }
 
     @Test
+    public void nonFiniteEdgeWeightsRejected()
+    {
+        for (double bad : new double[] { Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY,
+            Double.NaN })
+        {
+            Graph<Integer, DefaultWeightedEdge> g =
+                new SimpleWeightedGraph<>(DefaultWeightedEdge.class);
+            for (int i = 0; i < 3; i++) {
+                g.addVertex(i);
+            }
+            g.setEdgeWeight(g.addEdge(0, 1), bad);
+            g.setEdgeWeight(g.addEdge(1, 2), 1);
+            assertThrows(
+                IllegalArgumentException.class, () -> solver().getPath(g),
+                () -> "weight " + bad + " must be rejected");
+        }
+    }
+
+    @Test
     public void exceedingVertexCeilingThrows()
     {
         HeldKarpShortestHamiltonianPath<Integer, DefaultWeightedEdge> small =
