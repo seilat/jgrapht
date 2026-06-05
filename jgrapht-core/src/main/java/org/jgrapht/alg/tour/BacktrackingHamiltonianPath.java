@@ -302,10 +302,20 @@ public class BacktrackingHamiltonianPath<V, E>
      *
      * <p>
      * The result is {@link HamiltonianPathSearchResult.Status#PATH_FOUND} for the cheapest feasible
-     * endpoint pair, or {@link HamiltonianPathSearchResult.Status#PROVEN_ABSENT} when the graph has
-     * no Hamiltonian path at all. Ties in total cost are broken deterministically by vertex
-     * iteration order. Each candidate pair triggers a full (worst-case exponential) Hamiltonian
-     * path search; see the {@code maxEndpointAttempts} overload to bound how many are attempted.
+     * endpoint pair, or {@link HamiltonianPathSearchResult.Status#PROVEN_ABSENT} when no feasible
+     * endpoint pair exists (equivalently, when the graph has no Hamiltonian path at all, since the
+     * cost-function modes enumerate every endpoint possibility). Ties in total cost are broken
+     * deterministically by vertex iteration order.
+     *
+     * <p>
+     * When both cost functions are supplied the method materialises all {@code n * (n - 1)} ordered
+     * endpoint pairs and tries them in ascending cost order; with a single cost function the
+     * candidates are the {@code n} single endpoints. Each candidate triggers a full (worst-case
+     * exponential) Hamiltonian path search, so the worst case is a quadratic number of exponential
+     * searches; in practice the leading existence check rejects hopeless graphs in one search and a
+     * feasible pair is usually found early. See the {@code maxEndpointAttempts} overload to bound
+     * how many candidates are attempted. The cost functions must return finite values for every
+     * vertex; a {@code NaN} or infinite cost is rejected with an {@link IllegalArgumentException}.
      *
      * @param graph the input graph
      * @param approachCost cost of starting the tour at a given vertex, or {@code null} to leave the
@@ -314,7 +324,8 @@ public class BacktrackingHamiltonianPath<V, E>
      *        end endpoint free
      * @return a {@link HamiltonianPathSearchResult} describing the outcome
      * @throws NullPointerException if {@code graph} is {@code null}
-     * @throws IllegalArgumentException if the graph is empty or not directed/undirected
+     * @throws IllegalArgumentException if the graph is empty or not directed/undirected, or a cost
+     *         function returns a non-finite value for some vertex
      */
     public HamiltonianPathSearchResult<V, E> getPathNearEndpoints(
         Graph<V, E> graph, ToDoubleFunction<V> approachCost, ToDoubleFunction<V> departureCost)
@@ -423,8 +434,10 @@ public class BacktrackingHamiltonianPath<V, E>
             double[] approach = new double[n];
             double[] departure = new double[n];
             for (int i = 0; i < n; i++) {
-                approach[i] = approachCost.applyAsDouble(vertices.get(i));
-                departure[i] = departureCost.applyAsDouble(vertices.get(i));
+                approach[i] = requireFiniteCost(
+                    approachCost.applyAsDouble(vertices.get(i)), "approachCost");
+                departure[i] = requireFiniteCost(
+                    departureCost.applyAsDouble(vertices.get(i)), "departureCost");
             }
             for (int i = 0; i < n; i++) {
                 for (int j = 0; j < n; j++) {
@@ -440,20 +453,38 @@ public class BacktrackingHamiltonianPath<V, E>
             for (int i = 0; i < n; i++) {
                 ranked.add(
                     new RankedEndpoints<>(
-                        vertices.get(i), null, approachCost.applyAsDouble(vertices.get(i)), i, -1));
+                        vertices.get(i), null,
+                        requireFiniteCost(
+                            approachCost.applyAsDouble(vertices.get(i)), "approachCost"),
+                        i, -1));
             }
         } else {
             for (int j = 0; j < n; j++) {
                 ranked.add(
                     new RankedEndpoints<>(
-                        null, vertices.get(j), departureCost.applyAsDouble(vertices.get(j)), -1,
-                        j));
+                        null, vertices.get(j),
+                        requireFiniteCost(
+                            departureCost.applyAsDouble(vertices.get(j)), "departureCost"),
+                        -1, j));
             }
         }
         ranked.sort(
             Comparator.comparingDouble((RankedEndpoints<V> c) -> c.cost)
                 .thenComparingInt(c -> c.startIndex).thenComparingInt(c -> c.endIndex));
         return ranked;
+    }
+
+    /**
+     * Validates that a caller-supplied endpoint cost is finite. A {@code NaN} or infinite cost
+     * makes "minimise off-tour cost" ill-defined, so it is rejected rather than silently ordered.
+     */
+    private static double requireFiniteCost(double cost, String name)
+    {
+        if (!Double.isFinite(cost)) {
+            throw new IllegalArgumentException(
+                name + " must return a finite value, got " + cost);
+        }
+        return cost;
     }
 
     /**

@@ -189,6 +189,25 @@ public class BacktrackingHamiltonianPathEndpointTest
         assertProvenAbsent(solver().getPathBetween(g, 3, 0));
     }
 
+    // ---- target-withholding pruning regression -------------------------------------------------
+
+    @Test
+    public void targetAdjacentToStartIsWithheldUntilLast()
+    {
+        // 0 is adjacent to the target 1, but taking the edge 0-1 immediately would strand {2,3}.
+        // The only Hamiltonian path from 0 to 1 is 0-2-3-1, so the solver must withhold the target
+        // until the final position rather than grabbing it early and reporting a false absence.
+        Graph<Integer, DefaultEdge> g = new SimpleGraph<>(DefaultEdge.class);
+        for (int i = 0; i < 4; i++) {
+            g.addVertex(i);
+        }
+        g.addEdge(0, 1); // start directly adjacent to target
+        g.addEdge(0, 2);
+        g.addEdge(2, 3);
+        g.addEdge(3, 1);
+        assertEndpoints(g, solver().getPathBetween(g, 0, 1), 0, 1);
+    }
+
     // ---- single vertex -------------------------------------------------------------------------
 
     @Test

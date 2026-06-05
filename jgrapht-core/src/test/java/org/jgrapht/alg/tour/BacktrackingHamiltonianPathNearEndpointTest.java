@@ -202,6 +202,28 @@ public class BacktrackingHamiltonianPathNearEndpointTest
     }
 
     @Test
+    public void nonFiniteCostFunctionRejected()
+    {
+        // a path graph has a Hamiltonian path, so the existence guard passes and candidate ranking
+        // (which consumes the cost functions) runs and must reject the non-finite cost
+        Graph<Integer, DefaultEdge> g = undirectedPath(4);
+        for (double bad : new double[] { Double.NaN, Double.POSITIVE_INFINITY,
+            Double.NEGATIVE_INFINITY })
+        {
+            ToDoubleFunction<Integer> badCost = v -> v == 0 ? bad : 1.0;
+            assertThrows(
+                IllegalArgumentException.class,
+                () -> solver().getPathNearEndpoints(g, badCost, null));
+            assertThrows(
+                IllegalArgumentException.class,
+                () -> solver().getPathNearEndpoints(g, null, badCost));
+            assertThrows(
+                IllegalArgumentException.class,
+                () -> solver().getPathNearEndpoints(g, badCost, v -> 1.0));
+        }
+    }
+
+    @Test
     public void invalidArgumentsThrow()
     {
         Graph<Integer, DefaultEdge> g = undirectedPath(3);
