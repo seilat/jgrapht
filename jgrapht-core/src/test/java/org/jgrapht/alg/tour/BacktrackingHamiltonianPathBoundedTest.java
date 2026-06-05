@@ -191,6 +191,60 @@ public class BacktrackingHamiltonianPathBoundedTest
             () -> HamiltonianPathSearchResult.aborted(-1L));
     }
 
+    // ---- bounded endpoint-constrained search ---------------------------------------------------
+
+    @Test
+    public void boundedBetweenFindsPathUnderHighLimit()
+    {
+        Graph<Integer, DefaultEdge> graph = path(6);
+        HamiltonianPathSearchResult<Integer, DefaultEdge> result =
+            new BacktrackingHamiltonianPath<Integer, DefaultEdge>()
+                .searchWithStateLimitBetween(graph, 0, 5, 1_000_000L);
+        assertHamiltonianPath(graph, result);
+        assertEquals(0, result.getPath().orElseThrow().getStartVertex());
+        assertEquals(5, result.getPath().orElseThrow().getEndVertex());
+    }
+
+    @Test
+    public void boundedBetweenInfeasibleEndpointsIsProvenAbsent()
+    {
+        // in a path graph the only Hamiltonian-path endpoints are the two ends; an internal target
+        // is infeasible and a generous budget proves it absent rather than aborting
+        Graph<Integer, DefaultEdge> graph = path(5);
+        HamiltonianPathSearchResult<Integer, DefaultEdge> result =
+            new BacktrackingHamiltonianPath<Integer, DefaultEdge>()
+                .searchWithStateLimitBetween(graph, 0, 2, 1_000_000L);
+        assertEquals(Status.PROVEN_ABSENT, result.getStatus());
+    }
+
+    @Test
+    public void boundedBetweenAbortsOnTinyBudget()
+    {
+        Graph<Integer, DefaultEdge> graph = complete(12);
+        HamiltonianPathSearchResult<Integer, DefaultEdge> result =
+            new BacktrackingHamiltonianPath<Integer, DefaultEdge>()
+                .searchWithStateLimitBetween(graph, 0, 11, 2L);
+        assertEquals(Status.ABORTED, result.getStatus());
+        assertTrue(result.getStatesExpanded() <= 2L);
+    }
+
+    @Test
+    public void boundedBetweenValidatesArguments()
+    {
+        Graph<Integer, DefaultEdge> graph = path(4);
+        BacktrackingHamiltonianPath<Integer, DefaultEdge> algo = new BacktrackingHamiltonianPath<>();
+        assertThrows(
+            NullPointerException.class, () -> algo.searchWithStateLimitBetween(graph, null, 3, 10L));
+        assertThrows(
+            NullPointerException.class, () -> algo.searchWithStateLimitBetween(graph, 0, null, 10L));
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> algo.searchWithStateLimitBetween(graph, 0, 3, 0L));
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> algo.searchWithStateLimitBetween(graph, 0, 99, 10L));
+    }
+
     private static Graph<Integer, DefaultEdge> path(int n)
     {
         Graph<Integer, DefaultEdge> g = new SimpleGraph<>(DefaultEdge.class);

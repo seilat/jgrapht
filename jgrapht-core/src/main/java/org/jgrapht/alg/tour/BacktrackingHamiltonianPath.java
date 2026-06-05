@@ -44,6 +44,16 @@ import java.util.*;
  * its state budget before completing.
  *
  * <p>
+ * The endpoint-constrained variants {@link #getPathFrom(Graph, Object)},
+ * {@link #getPathTo(Graph, Object)} and {@link #getPathBetween(Graph, Object, Object)} restrict
+ * the search to Hamiltonian paths that begin at a given vertex, end at a given vertex, or run
+ * between a given pair of vertices respectively. They use the same exact search and report
+ * {@code PROVEN_ABSENT} when no path satisfying the endpoint constraints exists. Bounded
+ * counterparts ({@link #searchWithStateLimit(Graph, long)} and
+ * {@link #searchWithStateLimitBetween(Graph, Object, Object, long)}) additionally report
+ * {@link HamiltonianPathSearchResult.Status#ABORTED} when a state budget is exhausted.
+ *
+ * <p>
  * This implementation is a straightforward exact DFS / backtracking solver for Hamiltonian
  * path existence, using standard pruning and candidate-ordering ideas rather than reproducing
  * any single published algorithm verbatim. For background see Rubin, F., "A Search Procedure
@@ -118,6 +128,10 @@ public class BacktrackingHamiltonianPath<V, E>
     private long statesExpanded;
     private long maxStatesLimit;
     private boolean aborted;
+    // Per-search scratch buffers for the reachability BFS, reused across the (exponentially many)
+    // DFS nodes of a single search to avoid an allocation at every node.
+    private boolean[] reachableScratch;
+    private int[] reachQueueScratch;
 
     /**
      * Constructs a new instance.
@@ -147,7 +161,98 @@ public class BacktrackingHamiltonianPath<V, E>
     @Override
     public HamiltonianPathSearchResult<V, E> getPath(Graph<V, E> graph)
     {
-        return search(graph, 0L);
+        return search(graph, 0L, null, null);
+    }
+
+    /**
+     * Computes a Hamiltonian path that <em>starts</em> at {@code source}, i.e. a Hamiltonian path
+     * whose first vertex is {@code source}. The remaining endpoint may be any other vertex.
+     *
+     * <p>
+     * In an undirected graph this is equivalent to requiring {@code source} to be one of the two
+     * path endpoints (a path and its reverse are the same path). In a directed graph it
+     * specifically requires {@code source} to be the head of the path, with every edge traversed
+     * in its forward direction.
+     *
+     * <p>
+     * The search is otherwise identical to {@link #getPath(Graph)}: it is exact, unbounded, and
+     * returns either {@link HamiltonianPathSearchResult.Status#PATH_FOUND} or
+     * {@link HamiltonianPathSearchResult.Status#PROVEN_ABSENT}.
+     *
+     * @param graph the input graph
+     * @param source the required first vertex of the path
+     * @return a {@link HamiltonianPathSearchResult} describing the outcome
+     * @throws NullPointerException if {@code graph} or {@code source} is {@code null}
+     * @throws IllegalArgumentException if the graph is empty or not directed/undirected, or if
+     *         {@code source} is not a vertex of {@code graph}
+     */
+    public HamiltonianPathSearchResult<V, E> getPathFrom(Graph<V, E> graph, V source)
+    {
+        Objects.requireNonNull(source, "source must not be null");
+        return search(graph, 0L, source, null);
+    }
+
+    /**
+     * Computes a Hamiltonian path that <em>ends</em> at {@code target}, i.e. a Hamiltonian path
+     * whose last vertex is {@code target}. The other endpoint may be any other vertex.
+     *
+     * <p>
+     * In an undirected graph this is equivalent to requiring {@code target} to be one of the two
+     * path endpoints. In a directed graph it specifically requires {@code target} to be the tail
+     * of the path, with every edge traversed in its forward direction.
+     *
+     * <p>
+     * The search is otherwise identical to {@link #getPath(Graph)}: it is exact, unbounded, and
+     * returns either {@link HamiltonianPathSearchResult.Status#PATH_FOUND} or
+     * {@link HamiltonianPathSearchResult.Status#PROVEN_ABSENT}.
+     *
+     * @param graph the input graph
+     * @param target the required last vertex of the path
+     * @return a {@link HamiltonianPathSearchResult} describing the outcome
+     * @throws NullPointerException if {@code graph} or {@code target} is {@code null}
+     * @throws IllegalArgumentException if the graph is empty or not directed/undirected, or if
+     *         {@code target} is not a vertex of {@code graph}
+     */
+    public HamiltonianPathSearchResult<V, E> getPathTo(Graph<V, E> graph, V target)
+    {
+        Objects.requireNonNull(target, "target must not be null");
+        return search(graph, 0L, null, target);
+    }
+
+    /**
+     * Computes a Hamiltonian path whose two endpoints are exactly {@code source} (first vertex)
+     * and {@code target} (last vertex).
+     *
+     * <p>
+     * For directed graphs the path runs from {@code source} to {@code target} following edge
+     * directions. For undirected graphs it is an open path with {@code source} and {@code target}
+     * as its two ends.
+     *
+     * <p>
+     * If {@code source} and {@code target} are equal and the graph has a single vertex, the
+     * trivial singleton path is returned. If they are equal and the graph has more than one
+     * vertex, no such path can exist (a Hamiltonian path on more than one vertex has two distinct
+     * endpoints), so {@link HamiltonianPathSearchResult.Status#PROVEN_ABSENT} is returned.
+     *
+     * <p>
+     * The search is otherwise identical to {@link #getPath(Graph)}: it is exact, unbounded, and
+     * returns either {@link HamiltonianPathSearchResult.Status#PATH_FOUND} or
+     * {@link HamiltonianPathSearchResult.Status#PROVEN_ABSENT}.
+     *
+     * @param graph the input graph
+     * @param source the required first vertex of the path
+     * @param target the required last vertex of the path
+     * @return a {@link HamiltonianPathSearchResult} describing the outcome
+     * @throws NullPointerException if {@code graph}, {@code source}, or {@code target} is
+     *         {@code null}
+     * @throws IllegalArgumentException if the graph is empty or not directed/undirected, or if
+     *         {@code source} or {@code target} is not a vertex of {@code graph}
+     */
+    public HamiltonianPathSearchResult<V, E> getPathBetween(Graph<V, E> graph, V source, V target)
+    {
+        Objects.requireNonNull(source, "source must not be null");
+        Objects.requireNonNull(target, "target must not be null");
+        return search(graph, 0L, source, target);
     }
 
     /**
@@ -171,10 +276,48 @@ public class BacktrackingHamiltonianPath<V, E>
         if (maxStates <= 0L) {
             throw new IllegalArgumentException("maxStates must be positive, got " + maxStates);
         }
-        return search(graph, maxStates);
+        return search(graph, maxStates, null, null);
     }
 
-    private HamiltonianPathSearchResult<V, E> search(Graph<V, E> graph, long maxStates)
+    /**
+     * Endpoint-constrained counterpart of {@link #searchWithStateLimit(Graph, long)}: searches for
+     * a Hamiltonian path that starts at {@code source} and ends at {@code target} under an upper
+     * bound on the number of DFS states explored. The structural prechecks run before the bounded
+     * DFS and are not counted against the budget. The result distinguishes a found path, a proven
+     * absence (the bounded search completed and no such path exists), and
+     * {@link HamiltonianPathSearchResult.Status#ABORTED} when the search hits its budget before
+     * completing.
+     *
+     * @param graph the input graph
+     * @param source the required first vertex of the path
+     * @param target the required last vertex of the path
+     * @param maxStates the maximum number of DFS states the search may explore; must be positive
+     * @return a {@link HamiltonianPathSearchResult} describing the outcome
+     * @throws NullPointerException if {@code graph}, {@code source}, or {@code target} is
+     *         {@code null}
+     * @throws IllegalArgumentException if {@code maxStates} is not positive, the graph is empty or
+     *         not directed/undirected, or an endpoint is not a vertex of {@code graph}
+     */
+    public HamiltonianPathSearchResult<V, E> searchWithStateLimitBetween(
+        Graph<V, E> graph, V source, V target, long maxStates)
+    {
+        Objects.requireNonNull(source, "source must not be null");
+        Objects.requireNonNull(target, "target must not be null");
+        if (maxStates <= 0L) {
+            throw new IllegalArgumentException("maxStates must be positive, got " + maxStates);
+        }
+        return search(graph, maxStates, source, target);
+    }
+
+    /**
+     * Core search routine shared by all public entry points. When {@code source} is non-null the
+     * path must start there; when {@code target} is non-null the path must end there; either or
+     * both may be {@code null} to leave the corresponding endpoint unconstrained. The endpoint
+     * constraints only restrict which vertex sequences count as a solution; they never weaken the
+     * exactness of the search.
+     */
+    private HamiltonianPathSearchResult<V, E> search(
+        Graph<V, E> graph, long maxStates, V source, V target)
     {
         Objects.requireNonNull(graph, "graph must not be null");
         GraphTests.requireDirectedOrUndirected(graph);
@@ -182,10 +325,28 @@ public class BacktrackingHamiltonianPath<V, E>
         aborted = false;
         maxStatesLimit = maxStates;
         requireNotEmpty(graph);
+        if (source != null && !graph.containsVertex(source)) {
+            throw new IllegalArgumentException("source vertex is not in the graph");
+        }
+        if (target != null && !graph.containsVertex(target)) {
+            throw new IllegalArgumentException("target vertex is not in the graph");
+        }
 
         final int n = graph.vertexSet().size();
         if (n == 1) {
+            V only = graph.vertexSet().iterator().next();
+            if ((source != null && !source.equals(only))
+                || (target != null && !target.equals(only)))
+            {
+                return HamiltonianPathSearchResult.provenAbsent(0L);
+            }
             return HamiltonianPathSearchResult.found(singletonPath(graph), 0L);
+        }
+
+        // A Hamiltonian path on more than one vertex has two distinct endpoints, so identical
+        // required endpoints are unsatisfiable.
+        if (source != null && source.equals(target)) {
+            return HamiltonianPathSearchResult.provenAbsent(0L);
         }
 
         final boolean directed = graph.getType().isDirected();
@@ -202,13 +363,24 @@ public class BacktrackingHamiltonianPath<V, E>
 
         int[][] adjacency = buildAdjacency(graph, indexToVertex, vertexToIndex, directed);
 
+        final int sourceIdx = source == null ? -1 : vertexToIndex.get(source);
+        final int targetIdx = target == null ? -1 : vertexToIndex.get(target);
+
         int[] pathIdx = new int[n];
         boolean[] visited = new boolean[n];
+        reachableScratch = new boolean[n];
+        reachQueueScratch = new int[n];
 
-        for (int start = 0; start < n; start++) {
+        final int startLo = sourceIdx >= 0 ? sourceIdx : 0;
+        final int startHi = sourceIdx >= 0 ? sourceIdx : n - 1;
+        for (int start = startLo; start <= startHi; start++) {
+            if (start == targetIdx) {
+                // the required end vertex cannot also be the start vertex (n >= 2)
+                continue;
+            }
             pathIdx[0] = start;
             visited[start] = true;
-            if (extend(adjacency, pathIdx, visited, 1, n)) {
+            if (extend(adjacency, pathIdx, visited, 1, n, targetIdx)) {
                 return HamiltonianPathSearchResult.found(
                     buildResult(graph, indexToVertex, pathIdx), statesExpanded);
             }
@@ -381,8 +553,15 @@ public class BacktrackingHamiltonianPath<V, E>
      * Recursive DFS extension. Returns {@code true} and leaves {@code pathIdx} filled with a
      * Hamiltonian vertex sequence as soon as one is discovered. Applies reachability pruning
      * and minimum-remaining-values candidate ordering.
+     *
+     * <p>
+     * When {@code targetIdx} is non-negative the search is constrained to paths ending at that
+     * vertex: it is withheld from every position except the last, where it becomes the only
+     * admissible candidate. This never causes a false negative, because a Hamiltonian path ending
+     * at {@code targetIdx} cannot use that vertex anywhere but its final position.
      */
-    private boolean extend(int[][] adjacency, int[] pathIdx, boolean[] visited, int depth, int n)
+    private boolean extend(
+        int[][] adjacency, int[] pathIdx, boolean[] visited, int depth, int n, int targetIdx)
     {
         if (aborted) {
             return false;
@@ -393,7 +572,7 @@ public class BacktrackingHamiltonianPath<V, E>
         }
         statesExpanded++;
         if (depth == n) {
-            return true;
+            return targetIdx < 0 || pathIdx[n - 1] == targetIdx;
         }
         int current = pathIdx[depth - 1];
 
@@ -402,16 +581,24 @@ public class BacktrackingHamiltonianPath<V, E>
             return false;
         }
 
+        final boolean placingLast = depth == n - 1;
         int[] neighbours = adjacency[current];
         int[] candidates = new int[neighbours.length];
         int[] onwardDegrees = new int[neighbours.length];
         int k = 0;
         for (int next : neighbours) {
-            if (!visited[next]) {
-                candidates[k] = next;
-                onwardDegrees[k] = onwardDegree(adjacency, visited, next);
-                k++;
+            if (visited[next]) {
+                continue;
             }
+            if (targetIdx >= 0) {
+                // the required end vertex is admissible only at the final position
+                if (placingLast ? next != targetIdx : next == targetIdx) {
+                    continue;
+                }
+            }
+            candidates[k] = next;
+            onwardDegrees[k] = onwardDegree(adjacency, visited, next);
+            k++;
         }
         // Insertion sort: ascending by onward degree, with vertex index as tie-breaker
         // (insertion sort is stable, so candidates ordered by graph index already serve as
@@ -433,7 +620,7 @@ public class BacktrackingHamiltonianPath<V, E>
             int next = candidates[i];
             visited[next] = true;
             pathIdx[depth] = next;
-            if (extend(adjacency, pathIdx, visited, depth + 1, n)) {
+            if (extend(adjacency, pathIdx, visited, depth + 1, n, targetIdx)) {
                 return true;
             }
             visited[next] = false;
@@ -455,9 +642,9 @@ public class BacktrackingHamiltonianPath<V, E>
         if (remaining == 0) {
             return true;
         }
-        int n = visited.length;
-        boolean[] reached = new boolean[n];
-        int[] queue = new int[n];
+        boolean[] reached = reachableScratch;
+        int[] queue = reachQueueScratch;
+        Arrays.fill(reached, false);
         int head = 0;
         int tail = 0;
         queue[tail++] = start;
